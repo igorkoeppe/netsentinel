@@ -1,0 +1,154 @@
+# NetSentinel
+
+Uma ferramenta educacional e defensiva de monitoramento e análise de conectividade TCP, desenvolvida como projeto de Engenharia da Computação com foco em cybersecurity.
+
+## Features
+
+- Validação rigorosa de alvos (IPv4, IPv6 e hostnames).
+- Probes TCP assíncronos de alta performance.
+- Scanner concorrente de múltiplas portas com limite controlável.
+- Detecção de disponibilidade do host via TCP (inferência por portas `OPEN` ou `CLOSED`).
+- Medição de tempo de resposta baseada no TCP handshake.
+- CLI amigável (`netsentinel`).
+
+## Arquitetura
+
+```text
+       CLI
+        │
+        ▼
+  NetworkTarget
+        │
+        ▼
+   Port Scanner
+        │
+        ▼
+    TCP Probe
+        │
+        ▼
+     Network
+
+       ---
+
+ Port Scan Results
+        │
+        ▼
+Availability Analysis
+        │
+        ▼
+AVAILABLE / UNAVAILABLE
+```
+
+## Instalação
+
+```bash
+# Clone o repositório
+git clone <repository-url>
+cd Projeto_NetSentinel
+
+# Crie e ative o ambiente virtual
+python -m venv .venv
+# Linux/macOS:
+source .venv/bin/activate
+# Windows:
+.venv\Scripts\Activate.ps1
+
+# Instale o projeto localmente
+pip install -e .
+```
+
+## Quick Start
+
+Execute a CLI para verificar as opções:
+
+```bash
+netsentinel --help
+netsentinel scan --help
+```
+
+## Exemplos
+
+Escaneando portas específicas de um alvo local:
+
+```bash
+netsentinel scan 127.0.0.1 --ports 22,80,443,8000
+```
+
+**Saída Aproximada:**
+```text
+NetSentinel TCP Scan
+
+Target: 127.0.0.1
+Status: AVAILABLE
+Response time: 1.0 ms
+
+PORT     STATUS       TIME
+22       CLOSED       2036.9 ms
+80       CLOSED       2036.5 ms
+443      CLOSED       2036.3 ms
+8000     OPEN         1.0 ms
+
+4 ports scanned
+1 open
+3 closed
+```
+
+## Como funciona
+
+### Detecção de estado da porta
+- **OPEN**: Conexão TCP estabelecida com sucesso.
+- **CLOSED**: O host respondeu recusando a conexão (`ConnectionRefusedError`). Isso significa que a máquina está ativa, mas o serviço está inativo ou protegido, o que ainda é prova de disponibilidade.
+- **TIMEOUT / UNREACHABLE**: Sem resposta clara ou bloqueio silencioso por firewall.
+
+### Disponibilidade TCP
+> Na v0.1, disponibilidade e tempo de resposta são inferidos através de conexões TCP. O NetSentinel ainda não implementa ICMP ping.
+
+Se ao menos uma porta retornar `OPEN` ou `CLOSED`, o host é considerado `AVAILABLE`. O tempo de resposta será o menor tempo entre os probes respondidos.
+
+## Limitações da v0.1
+
+- Apenas monitoramento TCP;
+- Portas precisam ser fornecidas explicitamente (sem autodiscovery ou ranges como 1-65535);
+- Sem ICMP (ping);
+- Sem UDP;
+- Sem monitoramento contínuo;
+- Sem banco de dados ou histórico;
+- Sem alertas;
+- Sem service fingerprinting;
+- Sem dashboard web.
+
+## Desenvolvimento
+
+Comandos de rotina e validação (requer dependências de `[dev]`):
+
+```bash
+# Linter
+ruff check .
+
+# Formatter
+ruff format --check .
+
+# Type checking
+mypy app
+
+# Testes
+pytest
+```
+
+## Roadmap
+
+Versões futuras implementarão banco de dados SQL (via SQLAlchemy/Alembic) para histórico das execuções e, futuramente, descoberta ICMP nativa e API FastAPI para painel de controle. 
+
+## Uso responsável
+
+O NetSentinel deve ser utilizado estritamente em:
+- Sistemas próprios.
+- `localhost` e laboratórios locais.
+- CTFs autorizados.
+- Redes onde exista autorização prévia e explícita.
+
+Não utilize a ferramenta contra infraestruturas públicas sem autorização.
+
+## Licença
+
+Projeto desenvolvido para fins educacionais.
