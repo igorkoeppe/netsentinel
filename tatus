@@ -1,0 +1,168 @@
+warning: in the working copy of 'CHANGELOG.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/cli.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/core/config.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/monitoring/availability.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'project.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'pyproject.toml', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_availability.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_cli.py', LF will be replaced by CRLF the next time Git touches it
+[1mdiff --git a/CHANGELOG.md b/CHANGELOG.md[m
+[1mindex 1b94326..dec4373 100644[m
+[1m--- a/CHANGELOG.md[m
+[1m+++ b/CHANGELOG.md[m
+[36m@@ -5,6 +5,16 @@[m [mAll notable changes to this project will be documented in this file.[m
+ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),[m
+ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).[m
+ [m
+[32m+[m[32m## [0.2.0] - Unreleased[m
+[32m+[m
+[32m+[m[32m### Added[m
+[32m+[m[32m- Continuous monitoring component (`monitor_host`) via async generator.[m
+[32m+[m[32m- CLI command `netsentinel monitor` to run continuous monitoring with `--interval` and `--count` parameters.[m
+[32m+[m[32m- Snapshot change detection for host availability and TCP port state changes.[m
+[32m+[m[32m- Real-time display of network state changes (Port opened, Port closed, Host became unavailable, Host became available).[m
+[32m+[m[32m- In-memory monitoring session event tracking.[m
+[32m+[m[32m- Monitoring session summary with snapshot and event counts upon exit.[m
+[32m+[m
+ ## [0.1.0] - Unreleased[m
+ [m
+ ### Added[m
+[1mdiff --git a/README.md b/README.md[m
+[1mindex 85e74c6..2a641ad 100644[m
+[1m--- a/README.md[m
+[1m+++ b/README.md[m
+[36m@@ -93,6 +93,45 @@[m [mPORT     STATUS       TIME[m
+ 3 closed[m
+ ```[m
+ [m
+[32m+[m[32m### Continuous Monitoring (v0.2.0)[m
+[32m+[m
+[32m+[m[32mO projeto possui dois modos principais de execução. O primeiro é o `scan` sob demanda:[m
+[32m+[m
+[32m+[m[32m```bash[m
+[32m+[m[32mnetsentinel scan 127.0.0.1 --ports 22,80,443[m
+[32m+[m[32m```[m
+[32m+[m
+[32m+[m[32mE o segundo é o monitoramento contínuo usando o comando `monitor`:[m
+[32m+[m
+[32m+[m[32m```bash[m
+[32m+[m[32mnetsentinel monitor 127.0.0.1 --ports 22,80,443 --interval 30[m
+[32m+[m[32m```[m
+[32m+[m
+[32m+[m[32mVocê também pode limitar a quantidade de snapshots usando `--count`:[m
+[32m+[m
+[32m+[m[32m```bash[m
+[32m+[m[32mnetsentinel monitor 127.0.0.1 --ports 80,443 --interval 5 --count 10[m
+[32m+[m[32m```[m
+[32m+[m
+[32m+[m[32m#### Como funciona o monitoramento contínuo[m
+[32m+[m[32mO fluxo simplificado é o seguinte:[m
+[32m+[m[32m```text[m
+[32m+[m[32mscan -> snapshot -> wait -> scan -> snapshot -> compare -> events[m
+[32m+[m[32m```[m
+[32m+[m
+[32m+[m[32mO primeiro snapshot apenas estabelece o baseline da sessão em memória, não gerando falsos positivos ou eventos artificiais. A partir do segundo snapshot, o motor passa a detectar as seguintes **mudanças observadas entre snapshots consecutivos**:[m
+[32m+[m
+[32m+[m[32m- `PORT_OPENED`[m
+[32m+[m[32m- `PORT_CLOSED`[m
+[32m+[m[32m- `HOST_BECAME_AVAILABLE`[m
+[32m+[m[32m- `HOST_BECAME_UNAVAILABLE`[m
+[32m+[m
+[32m+[m[32mEsses eventos representam alterações concretas no estado e não são varreduras de vulnerabilidade e não funcionam como um IDS completo.[m
+[32m+[m
+[32m+[m[32mO comando irá executar indefinitamente ou até atingir o limite estipulado em `--count`. Se interrompido manualmente pelo usuário com `Ctrl+C` ou finalizado naturalmente, um resumo da sessão é exibido informando a quantidade de snapshots realizados, eventos detectados consolidados por tipo, e a duração.[m
+[32m+[m
+[32m+[m[32m> **IMPORTANTE**: Monitoring events in v0.2.0 are stored only in memory and are discarded when the process exits. Os resultados ainda não são persistidos.[m
+[32m+[m
+ ## Como funciona[m
+ [m
+ ### Detecção de estado da porta[m
+[36m@@ -105,17 +144,19 @@[m [mPORT     STATUS       TIME[m
+ [m
+ Se ao menos uma porta retornar `OPEN` ou `CLOSED`, o host é considerado `AVAILABLE`. O tempo de resposta será o menor tempo entre os probes respondidos.[m
+ [m
+[31m-## Limitações da v0.1[m
+[31m-[m
+[31m-- Apenas monitoramento TCP;[m
+[31m-- Portas precisam ser fornecidas explicitamente (sem autodiscovery ou ranges como 1-65535);[m
+[31m-- Sem ICMP (ping);[m
+[31m-- Sem UDP;[m
+[31m-- Sem monitoramento contínuo;[m
+[31m-- Sem banco de dados ou histórico;[m
+[31m-- Sem alertas;[m
+[31m-- Sem service fingerprinting;[m
+[31m-- Sem dashboard web.[m
+[32m+[m[32m## Limitações atuais (v0.2.0)[m
+[32m+[m
+[32m+[m[32mA v0.2.0 ainda NÃO possui:[m
+[32m+[m[32m- PostgreSQL ou persistência em banco de dados;[m
+[32m+[m[32m- Buscas históricas (historical queries);[m
+[32m+[m[32m- Geração de alertas com severidade (alert severity);[m
+[32m+[m[32m- Sistema de notificações (email, Slack, etc);[m
+[32m+[m[32m- Dashboard web ou frontend;[m
+[32m+[m[32m- Suporte a ICMP (ping) ou UDP;[m
+[32m+[m[32m- Autodiscovery de hosts ou ranges como 1-65535;[m
+[32m+[m[32m- Service fingerprinting;[m
+[32m+[m[32m- Scanners de vulnerabilidade (vulnerability scanning);[m
+[32m+[m[32m- E não é um IDS (Intrusion Detection System) completo.[m
+ [m
+ ## Desenvolvimento[m
+ [m
+[1mdiff --git a/app/cli.py b/app/cli.py[m
+[1mindex fcc4c3a..47ab24e 100644[m
+[1m--- a/app/cli.py[m
+[1m+++ b/app/cli.py[m
+[36m@@ -3,8 +3,13 @@[m
+ import argparse[m
+ import asyncio[m
+ import sys[m
+[32m+[m[32mimport time[m
+[32m+[m[32mfrom collections import Counter[m
+ [m
+[32m+[m[32mfrom app.core.config import settings[m
+[32m+[m[32mfrom app.detection.engine import MonitoringEvent, MonitoringEventType, detect_changes[m
+ from app.monitoring.availability import HostAvailabilityResult, check_host_availability[m
+[32m+[m[32mfrom app.monitoring.monitor import monitor_host[m
+ from app.monitoring.target import InvalidTargetError, NetworkTarget[m
+ [m
+ [m
+[36m@@ -13,7 +18,7 @@[m [mdef parse_ports(ports_str: str) -> list[int]:[m
+     ports = [][m
+     if not ports_str.strip():[m
+         raise argparse.ArgumentTypeError("Port list cannot be empty.")[m
+[31m-        [m
+[32m+[m
+     for port_part in ports_str.split(","):[m
+         port_part = port_part.strip()[m
+         if not port_part:[m
+[36m@@ -22,38 +27,53 @@[m [mdef parse_ports(ports_str: str) -> list[int]:[m
+             port_num = int(port_part)[m
+         except ValueError:[m
+             raise argparse.ArgumentTypeError(f"Invalid TCP port: '{port_part}'")[m
+[31m-            [m
+[32m+[m
+         if port_num < 1 or port_num > 65535:[m
+             raise argparse.ArgumentTypeError(f"Invalid TCP port: {port_num}")[m
+[31m-            [m
+[32m+[m
+         ports.append(port_num)[m
+[31m-        [m
+[32m+[m
+     if not ports:[m
+         raise argparse.ArgumentTypeError("No valid ports provided.")[m
+[31m-        [m
+[32m+[m
+     return ports[m
+ [m
+ [m
+[32m+[m[32mdef parse_interval(val: str) -> int:[m
+[32m+[m[32m    """Parse and validate the interval argument."""[m
+[32m+[m[32m    try:[m
+[32m+[m[32m        interval = int(val)[m
+[32m+[m[32m    except ValueError:[m
+[32m+[m[32m        raise argparse.ArgumentTypeError([m
+[32m+[m[32m            f"Invalid interval: '{val}'. Must be an integer."[m
+[32m+[m[32m        )[m
+[32m+[m[32m    if interval <= 0:[m
+[32m+[m[32m        raise argparse.ArgumentTypeError("Interval must be strictly positive.")[m

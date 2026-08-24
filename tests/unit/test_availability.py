@@ -3,9 +3,10 @@
 import asyncio
 from unittest.mock import AsyncMock, patch
 
-import pytest
-
-from app.monitoring.availability import HostAvailabilityResult, HostStatus, check_host_availability
+from app.monitoring.availability import (
+    HostStatus,
+    check_host_availability,
+)
 from app.monitoring.port_scanner import PortScanResult
 from app.monitoring.target import NetworkTarget
 from app.monitoring.tcp_probe import PortStatus, TcpProbeResult
@@ -13,7 +14,9 @@ from app.monitoring.tcp_probe import PortStatus, TcpProbeResult
 _LOOPBACK = NetworkTarget.parse("127.0.0.1")
 
 
-async def _close_immediately(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+async def _close_immediately(
+    reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+) -> None:
     """Helper that closes the connection immediately, simulating a closed or reset port."""
     writer.close()
     await writer.wait_closed()
@@ -25,9 +28,11 @@ class TestAvailabilityWithRealSockets:
     async def test_available_via_open_port(self) -> None:
         """A host with an open port should be AVAILABLE."""
         # Create a local server
-        server = await asyncio.start_server(_close_immediately, host="127.0.0.1", port=0)
+        server = await asyncio.start_server(
+            _close_immediately, host="127.0.0.1", port=0
+        )
         port = server.sockets[0].getsockname()[1]
-        
+
         try:
             result = await check_host_availability(_LOOPBACK, [port])
             assert result.status == HostStatus.AVAILABLE
@@ -59,7 +64,7 @@ class TestAvailabilityWithMocks:
             duration_ms=50.0,
             ports=(TcpProbeResult(_LOOPBACK, 80, PortStatus.CLOSED, 10.0),),
         )
-        
+
         result = await check_host_availability(_LOOPBACK, [80])
         assert result.status == HostStatus.AVAILABLE
         assert result.response_time_ms == 10.0
@@ -74,7 +79,7 @@ class TestAvailabilityWithMocks:
             duration_ms=1000.0,
             ports=(TcpProbeResult(_LOOPBACK, 80, PortStatus.TIMEOUT, 1000.0),),
         )
-        
+
         result = await check_host_availability(_LOOPBACK, [80])
         assert result.status == HostStatus.UNAVAILABLE
         assert result.response_time_ms == 1000.0
@@ -89,7 +94,7 @@ class TestAvailabilityWithMocks:
             duration_ms=2.0,
             ports=(TcpProbeResult(_LOOPBACK, 80, PortStatus.UNREACHABLE, 2.0),),
         )
-        
+
         result = await check_host_availability(_LOOPBACK, [80])
         assert result.status == HostStatus.UNAVAILABLE
         assert result.response_time_ms == 2.0
@@ -108,7 +113,7 @@ class TestAvailabilityWithMocks:
                 TcpProbeResult(_LOOPBACK, 443, PortStatus.UNREACHABLE, 2.0),
             ),
         )
-        
+
         result = await check_host_availability(_LOOPBACK, [22, 80, 443])
         assert result.status == HostStatus.AVAILABLE
         # Latency should be the response time of the port that actually answered

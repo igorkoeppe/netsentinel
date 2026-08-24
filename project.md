@@ -360,7 +360,7 @@ GET /health
 
 ## 10. Roadmap
 
-### v0.1 — Network Scanner
+### v0.1 — Network Scanner (completed)
 
 Objetivo:
 
@@ -375,20 +375,21 @@ Features:
 - CLI básica;
 - testes unitários.
 
-### v0.2 — Monitoramento contínuo
+### v0.2 — Monitoramento contínuo (completed / release candidate)
 
-- scheduler;
 - execução assíncrona;
-- múltiplos hosts;
 - intervalos configuráveis;
-- logging estruturado.
+- change detection (snapshot comparison);
+- in-memory tracking;
+- eventos em tempo real;
+- session summary.
 
-### v0.3 — API
+### v0.3 — API e Persistência (persistence/history)
 
+- PostgreSQL;
+- SQLAlchemy;
 - FastAPI;
-- endpoints de hosts;
-- scans manuais;
-- documentação OpenAPI.
+- histórico de scans;
 
 ### v0.4 — Persistência
 

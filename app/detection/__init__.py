@@ -1,0 +1,1 @@
+"""Make detection a package."""

@@ -93,6 +93,45 @@ PORT     STATUS       TIME
 3 closed
 ```
 
+### Continuous Monitoring (v0.2.0)
+
+O projeto possui dois modos principais de execução. O primeiro é o `scan` sob demanda:
+
+```bash
+netsentinel scan 127.0.0.1 --ports 22,80,443
+```
+
+E o segundo é o monitoramento contínuo usando o comando `monitor`:
+
+```bash
+netsentinel monitor 127.0.0.1 --ports 22,80,443 --interval 30
+```
+
+Você também pode limitar a quantidade de snapshots usando `--count`:
+
+```bash
+netsentinel monitor 127.0.0.1 --ports 80,443 --interval 5 --count 10
+```
+
+#### Como funciona o monitoramento contínuo
+O fluxo simplificado é o seguinte:
+```text
+scan -> snapshot -> wait -> scan -> snapshot -> compare -> events
+```
+
+O primeiro snapshot apenas estabelece o baseline da sessão em memória, não gerando falsos positivos ou eventos artificiais. A partir do segundo snapshot, o motor passa a detectar as seguintes **mudanças observadas entre snapshots consecutivos**:
+
+- `PORT_OPENED`
+- `PORT_CLOSED`
+- `HOST_BECAME_AVAILABLE`
+- `HOST_BECAME_UNAVAILABLE`
+
+Esses eventos representam alterações concretas no estado e não são varreduras de vulnerabilidade e não funcionam como um IDS completo.
+
+O comando irá executar indefinitamente ou até atingir o limite estipulado em `--count`. Se interrompido manualmente pelo usuário com `Ctrl+C` ou finalizado naturalmente, um resumo da sessão é exibido informando a quantidade de snapshots realizados, eventos detectados consolidados por tipo, e a duração.
+
+> **IMPORTANTE**: Monitoring events in v0.2.0 are stored only in memory and are discarded when the process exits. Os resultados ainda não são persistidos.
+
 ## Como funciona
 
 ### Detecção de estado da porta
@@ -105,17 +144,19 @@ PORT     STATUS       TIME
 
 Se ao menos uma porta retornar `OPEN` ou `CLOSED`, o host é considerado `AVAILABLE`. O tempo de resposta será o menor tempo entre os probes respondidos.
 
-## Limitações da v0.1
+## Limitações atuais (v0.2.0)
 
-- Apenas monitoramento TCP;
-- Portas precisam ser fornecidas explicitamente (sem autodiscovery ou ranges como 1-65535);
-- Sem ICMP (ping);
-- Sem UDP;
-- Sem monitoramento contínuo;
-- Sem banco de dados ou histórico;
-- Sem alertas;
-- Sem service fingerprinting;
-- Sem dashboard web.
+A v0.2.0 ainda NÃO possui:
+- PostgreSQL ou persistência em banco de dados;
+- Buscas históricas (historical queries);
+- Geração de alertas com severidade (alert severity);
+- Sistema de notificações (email, Slack, etc);
+- Dashboard web ou frontend;
+- Suporte a ICMP (ping) ou UDP;
+- Autodiscovery de hosts ou ranges como 1-65535;
+- Service fingerprinting;
+- Scanners de vulnerabilidade (vulnerability scanning);
+- E não é um IDS (Intrusion Detection System) completo.
 
 ## Desenvolvimento
 

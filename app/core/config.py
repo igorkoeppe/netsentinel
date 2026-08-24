@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     # Scanning defaults — conservative values for safe operation.
     SCAN_TIMEOUT: float = 3.0
     SCAN_MAX_CONCURRENCY: int = 50
+    MONITOR_INTERVAL: int = 30
 
 
 settings = Settings()
