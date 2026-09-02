@@ -48,7 +48,8 @@ async def test_monitor_host_iterations(sample_target, mock_snapshot):
 
             assert len(snapshots) == 3
             assert mock_check.call_count == 3
-            # Sleep is called after each iteration, except the last one due to break check
+            # Sleep is called after each iteration, except the last one
+            # due to break check
             assert mock_sleep.call_count == 2
             mock_sleep.assert_called_with(30)
 

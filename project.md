@@ -375,7 +375,7 @@ Features:
 - CLI básica;
 - testes unitários.
 
-### v0.2 — Monitoramento contínuo (completed / release candidate)
+### v0.2 — Monitoramento contínuo (completed)
 
 - execução assíncrona;
 - intervalos configuráveis;
@@ -384,14 +384,16 @@ Features:
 - eventos em tempo real;
 - session summary.
 
-### v0.3 — API e Persistência (persistence/history)
+### v0.3 — Persistence & History (in development)
 
 - PostgreSQL;
-- SQLAlchemy;
-- FastAPI;
-- histórico de scans;
+- SQLAlchemy 2.x (async) + asyncpg;
+- Alembic migrations;
+- modelos ORM: hosts, scans, port_results, monitoring_events;
+- configuração de DATABASE_URL;
+- infraestrutura de persistência (sem integração com monitor ainda).
 
-### v0.4 — Persistência
+### v0.4 — Integração Persistence + Monitor
 
 - PostgreSQL;
 - SQLAlchemy;

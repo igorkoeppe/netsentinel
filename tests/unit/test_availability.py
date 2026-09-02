@@ -17,7 +17,9 @@ _LOOPBACK = NetworkTarget.parse("127.0.0.1")
 async def _close_immediately(
     reader: asyncio.StreamReader, writer: asyncio.StreamWriter
 ) -> None:
-    """Helper that closes the connection immediately, simulating a closed or reset port."""
+    """Helper that closes the connection immediately,
+    simulating a closed or reset port.
+    """
     writer.close()
     await writer.wait_closed()
 
@@ -44,10 +46,12 @@ class TestAvailabilityWithRealSockets:
 
     async def test_available_via_closed_port(self) -> None:
         """A host that explicitly rejects a connection (CLOSED) is still AVAILABLE."""
-        # Port 0 on Windows/Linux generally cannot be connected to, returning ConnectionRefused
-        # If the OS blocks it, we might get timeout, so let's mock the scanner behavior for certainty
-        # or bind and close a port to guarantee it's closed, but OS behavior varies.
-        # We will test the closed port logic via mocks in the next suite to guarantee determinism.
+        # Port 0 on Windows/Linux generally cannot be connected to,
+        # returning ConnectionRefused. If the OS blocks it, we might get
+        # timeout, so let's mock the scanner behavior for certainty,
+        # or bind and close a port to guarantee it's closed, but OS
+        # behavior varies. We will test the closed port logic via mocks
+        # in the next suite to guarantee determinism.
         pass
 
 
@@ -56,7 +60,9 @@ class TestAvailabilityWithMocks:
 
     @patch("app.monitoring.availability.scan_ports", new_callable=AsyncMock)
     async def test_available_via_closed_port_mock(self, mock_scan: AsyncMock) -> None:
-        """A closed port means the host responded (e.g. RST packet), so it's AVAILABLE."""
+        """A closed port means the host responded (e.g. RST packet),
+        so it's AVAILABLE.
+        """
         mock_scan.return_value = PortScanResult(
             target=_LOOPBACK,
             started_at=None,  # type: ignore

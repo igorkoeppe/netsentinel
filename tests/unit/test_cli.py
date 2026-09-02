@@ -130,7 +130,7 @@ class TestRunScan:
 
 class TestRunMonitor:
     async def test_invalid_target(self, capsys: pytest.CaptureFixture[str]) -> None:
-        code = await run_monitor("http://example.com", [80], 5, 2)
+        code = await run_monitor("http://example.com", [80], 5, 2, False)
         assert code == 2
         captured = capsys.readouterr()
         assert "error: invalid network target" in captured.err
@@ -164,7 +164,7 @@ class TestRunMonitor:
         mock_monitor_host.return_value = mock_generator()
         mock_detect.return_value = []
 
-        code = await run_monitor("127.0.0.1", [80], 5, 1)
+        code = await run_monitor("127.0.0.1", [80], 5, 1, False)
         assert code == 0
 
         captured = capsys.readouterr()
@@ -207,7 +207,7 @@ class TestRunMonitor:
         mock_monitor_host.return_value = mock_generator()
         mock_detect.return_value = []
 
-        code = await run_monitor("127.0.0.1", [80], 5, 2)
+        code = await run_monitor("127.0.0.1", [80], 5, 2, False)
         assert code == 0
 
         captured = capsys.readouterr()
@@ -262,7 +262,7 @@ class TestRunMonitor:
         mock_monitor_host.return_value = mock_generator()
         mock_detect.return_value = [event]
 
-        await run_monitor("127.0.0.1", [80], 5, 2)
+        await run_monitor("127.0.0.1", [80], 5, 2, False)
 
         captured = capsys.readouterr()
         assert "Changes detected:" in captured.out
@@ -317,7 +317,7 @@ class TestRunMonitor:
         mock_monitor_host.return_value = mock_generator()
         mock_detect.return_value = [event]
 
-        await run_monitor("127.0.0.1", [443], 5, 2)
+        await run_monitor("127.0.0.1", [443], 5, 2, False)
 
         captured = capsys.readouterr()
         assert "Changes detected:" in captured.out
@@ -380,7 +380,7 @@ class TestRunMonitor:
         mock_monitor_host.return_value = mock_generator()
         mock_detect.side_effect = [[event_unavail], [event_avail]]
 
-        await run_monitor("127.0.0.1", [80], 5, 3)
+        await run_monitor("127.0.0.1", [80], 5, 3, False)
 
         captured = capsys.readouterr()
         assert "HOST_BECAME_UNAVAILABLE" in captured.out
@@ -442,7 +442,7 @@ class TestRunMonitor:
         mock_monitor_host.return_value = mock_generator()
         mock_detect.return_value = [event1, event2]
 
-        await run_monitor("127.0.0.1", [80, 443], 5, 2)
+        await run_monitor("127.0.0.1", [80, 443], 5, 2, False)
 
         captured = capsys.readouterr()
         assert "PORT_OPENED" in captured.out
@@ -466,7 +466,7 @@ class TestRunMonitor:
 
         mock_monitor_host.return_value = mock_generator()
 
-        code = await run_monitor("127.0.0.1", [80], 5, None)
+        code = await run_monitor("127.0.0.1", [80], 5, None, False)
         assert code == 0
 
         captured = capsys.readouterr()

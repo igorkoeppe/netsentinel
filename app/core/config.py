@@ -18,5 +18,9 @@ class Settings(BaseSettings):
     SCAN_MAX_CONCURRENCY: int = 50
     MONITOR_INTERVAL: int = 30
 
+    # Database (v0.3) — empty string means "not configured".
+    # The application continues to function without a database for scan/monitor.
+    DATABASE_URL: str = ""
+
 
 settings = Settings()
