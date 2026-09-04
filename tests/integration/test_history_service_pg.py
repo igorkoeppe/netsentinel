@@ -2,8 +2,10 @@ from datetime import UTC, datetime
 
 import pytest
 
+from app.detection.alerts import AlertType, SecurityAlert, Severity
 from app.detection.engine import MonitoringEvent, MonitoringEventType
 from app.monitoring.target import NetworkTarget
+from app.repositories.alert import AlertRepository
 from app.repositories.host import HostRepository
 from app.repositories.monitoring_event import MonitoringEventRepository
 from app.repositories.scan import PortResultInput, ScanRepository
@@ -25,6 +27,11 @@ def scan_repo(pg_session):
 @pytest.fixture
 def event_repo(pg_session):
     return MonitoringEventRepository(pg_session)
+
+
+@pytest.fixture
+def alert_repo(pg_session):
+    return AlertRepository(pg_session)
 
 
 @pytest.fixture
@@ -208,3 +215,123 @@ class TestHistoryServiceIntegration:
 
         assert history_a is not None and len(history_a.scans) == 2
         assert history_b is not None and len(history_b.scans) == 1
+
+    async def test_get_scan_details_with_alerts(
+        self, service, host_repo, scan_repo, event_repo, alert_repo, pg_session
+    ):
+        """Scan details includes correlated security alerts."""
+        host = await host_repo.create(address="10.0.0.4")
+        await pg_session.flush()
+
+        scan = await scan_repo.create(
+            host_id=host.id,
+            status="available",
+            response_time_ms=1.2,
+            started_at=datetime(2023, 1, 1, 10, 0, tzinfo=UTC),
+            finished_at=datetime(2023, 1, 1, 10, 1, tzinfo=UTC),
+        )
+        await pg_session.flush()
+
+        target = NetworkTarget.parse("10.0.0.4")
+        event = await event_repo.create(
+            host_id=host.id,
+            scan_id=scan.id,
+            event=MonitoringEvent(
+                event_type=MonitoringEventType.PORT_OPENED,
+                target=target,
+                timestamp=datetime(2023, 1, 1, 10, 0, 1, tzinfo=UTC),
+                port=443,
+                previous_state="closed",
+                current_state="open",
+            ),
+        )
+
+        alert = SecurityAlert(
+            alert_type=AlertType.NEW_OPEN_PORT,
+            severity=Severity.HIGH,
+            target=target,
+            timestamp=datetime(2023, 1, 1, 10, 0, 1, tzinfo=UTC),
+            message="TCP port 443 is newly open.",
+            port=443,
+            source_event_type="port_opened",
+        )
+        await alert_repo.create(
+            host_id=host.id,
+            scan_id=scan.id,
+            monitoring_event_id=event.id,
+            alert=alert,
+        )
+        await pg_session.commit()
+
+        details = await service.get_scan_details(scan.id)
+        assert details is not None
+        assert len(details.alerts) == 1
+        a = details.alerts[0]
+        assert a.alert_type == "new_open_port"
+        assert a.severity == "high"
+        assert a.port == 443
+        assert a.message == "TCP port 443 is newly open."
+        assert a.monitoring_event_id == event.id
+
+    async def test_get_host_history_with_alert_counts(
+        self, service, host_repo, scan_repo, alert_repo, pg_session
+    ):
+        """Host history correctly counts alerts per scan without N+1."""
+        host = await host_repo.create(address="10.0.0.5")
+        await pg_session.flush()
+
+        t1 = datetime(2023, 1, 1, 10, 0, tzinfo=UTC)
+        t2 = datetime(2023, 1, 1, 11, 0, tzinfo=UTC)
+
+        scan1 = await scan_repo.create(
+            host_id=host.id,
+            status="available",
+            response_time_ms=1.0,
+            started_at=t1,
+            finished_at=t1,
+        )
+        scan2 = await scan_repo.create(
+            host_id=host.id,
+            status="available",
+            response_time_ms=1.0,
+            started_at=t2,
+            finished_at=t2,
+        )
+        await pg_session.flush()
+
+        target = NetworkTarget.parse("10.0.0.5")
+        # 2 alerts on scan2, 0 on scan1
+        alert1 = SecurityAlert(
+            alert_type=AlertType.NEW_OPEN_PORT,
+            severity=Severity.HIGH,
+            target=target,
+            timestamp=t2,
+            message="Port 80 open",
+            port=80,
+            source_event_type="port_opened",
+        )
+        alert2 = SecurityAlert(
+            alert_type=AlertType.NEW_OPEN_PORT,
+            severity=Severity.HIGH,
+            target=target,
+            timestamp=t2,
+            message="Port 443 open",
+            port=443,
+            source_event_type="port_opened",
+        )
+        await alert_repo.create(
+            host_id=host.id, scan_id=scan2.id, monitoring_event_id=None, alert=alert1
+        )
+        await alert_repo.create(
+            host_id=host.id, scan_id=scan2.id, monitoring_event_id=None, alert=alert2
+        )
+        await pg_session.commit()
+
+        history = await service.get_host_history("10.0.0.5")
+        assert history is not None
+        assert len(history.scans) == 2
+        # scans ordered DESC by timestamp: scan2 (t2) first, then scan1 (t1)
+        assert history.scans[0].scan_id == scan2.id
+        assert history.scans[0].alert_count == 2
+        assert history.scans[1].scan_id == scan1.id
+        assert history.scans[1].alert_count == 0

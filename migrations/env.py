@@ -36,15 +36,15 @@ target_metadata = Base.metadata
 
 
 def _get_url() -> str:
-    """Return DATABASE_URL from application settings.
+    """Return the migration credential, falling back to legacy DATABASE_URL.
 
     Raises:
         RuntimeError: If DATABASE_URL is not configured.
     """
-    url = settings.DATABASE_URL
+    url = settings.MIGRATION_DATABASE_URL or settings.DATABASE_URL
     if not url:
         raise RuntimeError(
-            "DATABASE_URL is not set. Configure it before running Alembic commands."
+            "MIGRATION_DATABASE_URL or DATABASE_URL must be set for Alembic commands."
         )
     return url
 

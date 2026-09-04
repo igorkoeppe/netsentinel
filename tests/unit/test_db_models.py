@@ -27,7 +27,13 @@ from app.db.base import Base
 
 
 class TestMetadata:
-    EXPECTED_TABLES = {"hosts", "scans", "port_results", "monitoring_events"}
+    EXPECTED_TABLES = {
+        "hosts",
+        "scans",
+        "port_results",
+        "monitoring_events",
+        "security_alerts",
+    }
 
     def test_all_tables_registered(self) -> None:
         """All four core tables must be present in Base.metadata."""

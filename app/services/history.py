@@ -1,9 +1,10 @@
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.repositories.alert import AlertRepository
 from app.repositories.host import HostRepository
 from app.repositories.monitoring_event import MonitoringEventRepository
 from app.repositories.scan import ScanRepository
@@ -18,6 +19,17 @@ class EventSummary:
     previous_state: str | None
     current_state: str | None
     created_at: datetime
+
+
+@dataclass(frozen=True)
+class AlertSummary:
+    id: int
+    alert_type: str
+    severity: str
+    message: str
+    port: int | None
+    created_at: datetime
+    monitoring_event_id: int | None
 
 
 @dataclass(frozen=True)
@@ -36,6 +48,7 @@ class ScanDetailsResult:
     finished_at: datetime | None
     ports: list[PortResultSummary]
     events: list[EventSummary]
+    alerts: list[AlertSummary] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -46,6 +59,7 @@ class ScanHistorySummary:
     response_time_ms: float | None
     port_count: int | None
     event_count: int | None
+    alert_count: int | None = None
 
 
 @dataclass(frozen=True)
@@ -69,6 +83,7 @@ class HistoryService:
         self._host_repo = HostRepository(session)
         self._scan_repo = ScanRepository(session)
         self._event_repo = MonitoringEventRepository(session)
+        self._alert_repo = AlertRepository(session)
 
     async def get_host_history(
         self, address: str, limit: int = 20
@@ -95,6 +110,10 @@ class HistoryService:
             return None
 
         scans = await self._scan_repo.list_by_host(host.id, limit=limit)
+        scan_ids = [s.id for s in scans]
+        alert_counts = (
+            await self._alert_repo.count_by_scans(scan_ids) if scan_ids else {}
+        )
 
         scan_summaries = []
         for scan in scans:
@@ -109,6 +128,7 @@ class HistoryService:
                     response_time_ms=scan.response_time_ms,
                     port_count=None,
                     event_count=None,
+                    alert_count=alert_counts.get(scan.id, 0),
                 )
             )
 
@@ -121,7 +141,7 @@ class HistoryService:
         )
 
     async def get_scan_details(self, scan_id: int) -> ScanDetailsResult | None:
-        """Fetch full details for a specific scan, including ports and events.
+        """Fetch full details for a specific scan, including ports, events and alerts.
 
         Parameters
         ----------
@@ -138,6 +158,7 @@ class HistoryService:
             return None
 
         events = await self._event_repo.list_by_scan(scan_id)
+        alerts = await self._alert_repo.list_by_scan(scan_id)
 
         port_summaries = [
             PortResultSummary(
@@ -159,6 +180,19 @@ class HistoryService:
             for ev in events
         ]
 
+        alert_summaries = [
+            AlertSummary(
+                id=al.id,
+                alert_type=al.alert_type,
+                severity=al.severity,
+                message=al.message,
+                port=al.port,
+                created_at=al.created_at,
+                monitoring_event_id=al.monitoring_event_id,
+            )
+            for al in alerts
+        ]
+
         return ScanDetailsResult(
             scan_id=scan.id,
             status=scan.status,
@@ -167,4 +201,5 @@ class HistoryService:
             finished_at=scan.finished_at,
             ports=port_summaries,
             events=event_summaries,
+            alerts=alert_summaries,
         )

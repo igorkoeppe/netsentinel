@@ -126,8 +126,9 @@ class TestCreatePortOpened:
             scan_id=scan_id,
             event=event,
         )
-        await pg_session.expire_all()
-        fetched = await event_repo.get_by_id(record.id)
+        record_id = record.id
+        pg_session.expire_all()
+        fetched = await event_repo.get_by_id(record_id)
 
         assert fetched is not None
         assert fetched.event_type == "port_opened"
@@ -167,8 +168,9 @@ class TestCreatePortClosed:
         event = _port_closed_event(22)
 
         record = await event_repo.create(host_id=host_id, scan_id=None, event=event)
-        await pg_session.expire_all()
-        fetched = await event_repo.get_by_id(record.id)
+        record_id = record.id
+        pg_session.expire_all()
+        fetched = await event_repo.get_by_id(record_id)
 
         assert fetched is not None
         assert fetched.event_type == "port_closed"
@@ -194,8 +196,9 @@ class TestCreateHostEvent:
         event = _host_unavailable_event()
 
         record = await event_repo.create(host_id=host_id, scan_id=None, event=event)
-        await pg_session.expire_all()
-        fetched = await event_repo.get_by_id(record.id)
+        record_id = record.id
+        pg_session.expire_all()
+        fetched = await event_repo.get_by_id(record_id)
 
         assert fetched is not None
         assert fetched.event_type == "host_became_unavailable"
@@ -212,8 +215,9 @@ class TestCreateHostEvent:
         event = _host_unavailable_event()
 
         record = await event_repo.create(host_id=host_id, scan_id=None, event=event)
-        await pg_session.expire_all()
-        fetched = await event_repo.get_by_id(record.id)
+        record_id = record.id
+        pg_session.expire_all()
+        fetched = await event_repo.get_by_id(record_id)
 
         assert fetched is not None
         assert fetched.previous_state == "available"
@@ -238,8 +242,9 @@ class TestTimestampPreservation:
         event = _port_opened_event(80, timestamp=custom_ts)
 
         record = await event_repo.create(host_id=host_id, scan_id=None, event=event)
-        await pg_session.expire_all()
-        fetched = await event_repo.get_by_id(record.id)
+        record_id = record.id
+        pg_session.expire_all()
+        fetched = await event_repo.get_by_id(record_id)
 
         assert fetched is not None
         # Allow for timezone representation differences (aware vs UTC)
@@ -305,7 +310,7 @@ class TestCreateMany:
         events = [_port_opened_event(80), _port_opened_event(443)]
 
         await event_repo.create_many(host_id=host_id, scan_id=None, events=events)
-        await pg_session.expire_all()
+        pg_session.expire_all()
 
         all_records = await event_repo.list_by_host(host_id)
         assert len(all_records) == 2
@@ -368,7 +373,7 @@ class TestListByHost:
         await event_repo.create(
             host_id=host_b, scan_id=None, event=_host_available_event()
         )
-        await pg_session.expire_all()
+        pg_session.expire_all()
 
         records_a = await event_repo.list_by_host(host_a)
         assert len(records_a) == 2
@@ -405,7 +410,7 @@ class TestListByHost:
             scan_id=None,
             event=_port_opened_event(22, timestamp=t2),
         )
-        await pg_session.expire_all()
+        pg_session.expire_all()
 
         records = await event_repo.list_by_host(host_id)
         timestamps = [r.created_at for r in records]
@@ -427,7 +432,7 @@ class TestListByHost:
                 scan_id=None,
                 event=_port_opened_event(80 + i, timestamp=_NOW + timedelta(minutes=i)),
             )
-        await pg_session.expire_all()
+        pg_session.expire_all()
 
         records = await event_repo.list_by_host(host_id, limit=3)
         assert len(records) == 3
@@ -473,7 +478,7 @@ class TestListByScan:
         await event_repo.create(
             host_id=host_id, scan_id=scan_b, event=_port_closed_event(22)
         )
-        await pg_session.expire_all()
+        pg_session.expire_all()
 
         records_a = await event_repo.list_by_scan(scan_a)
         assert len(records_a) == 2
@@ -502,7 +507,7 @@ class TestListByScan:
                 _port_closed_event(80),
             ],
         )
-        await pg_session.expire_all()
+        pg_session.expire_all()
 
         records = await event_repo.list_by_scan(scan_id)
         ids = [r.id for r in records]

@@ -384,24 +384,35 @@ Features:
 - eventos em tempo real;
 - session summary.
 
-### v0.3 — Persistence & History (in development)
+### v0.3 — Persistence & History (completed)
 
 - PostgreSQL;
 - SQLAlchemy 2.x (async) + asyncpg;
 - Alembic migrations;
 - modelos ORM: hosts, scans, port_results, monitoring_events;
 - configuração de DATABASE_URL;
-- infraestrutura de persistência (sem integração com monitor ainda).
+- infraestrutura de persistência;
+- `--persist` flag para monitoramento;
+- `netsentinel history` para consulta de histórico.
 
-### v0.4 — Integração Persistence + Monitor
+### v0.4 — Security Alerts & Detection Rules (completed)
 
-- PostgreSQL;
-- SQLAlchemy;
-- migrations;
-- histórico de scans;
-- histórico de portas.
+- camada de domínio para alertas de segurança;
+- modelo `SecurityAlert` com `AlertType` e `Severity`;
+- regras de detecção para mudanças de porta e host;
+- Alert Engine puro e determinístico (`generate_alerts`);
+- persistência transacional de alertas no PostgreSQL (`security_alerts`);
+- migração Alembic para tabela de security alerts;
+- `AlertRepository` assíncrono com queries otimizadas;
+- integração de alertas em tempo real na CLI `netsentinel monitor`;
+- sumário de sessão com contagem por severidade;
+- integração completa com `HistoryService` e `netsentinel history`;
+- severidades configuráveis via `AlertPolicy` e variáveis de ambiente mantendo defaults;
+- política de expected TCP ports (`EXPECTED_TCP_PORTS`, `EXPECTED_OPEN_PORT`, `UNEXPECTED_OPEN_PORT`).
 
-### v0.5 — Detection Engine
+
+
+### v0.5 — Integração Persistence + Monitor
 
 - comparação entre scans;
 - host offline;

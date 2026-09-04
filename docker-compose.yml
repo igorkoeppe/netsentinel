@@ -5,11 +5,13 @@ services:
     environment:
       POSTGRES_DB: netsentinel
       POSTGRES_USER: netsentinel
-      POSTGRES_PASSWORD: netsentinel
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set a private POSTGRES_PASSWORD}
+      NETSENTINEL_DB_PASSWORD: ${NETSENTINEL_DB_PASSWORD:?Set a private NETSENTINEL_DB_PASSWORD}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - netsentinel_postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/010-runtime-role.sql:/docker-entrypoint-initdb.d/010-runtime-role.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U netsentinel -d netsentinel"]
       interval: 5s

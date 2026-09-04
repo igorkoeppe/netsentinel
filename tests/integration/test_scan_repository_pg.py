@@ -255,7 +255,7 @@ class TestPortResults:
         await pg_session.flush()
 
         # Expire and reload
-        await pg_session.expire_all()
+        pg_session.expire_all()
         scan = await scan_repo.get_by_id(scan_id)
         assert scan is not None
         assert len(scan.port_results) == 3
@@ -275,7 +275,7 @@ class TestPortResults:
         ]
         await scan_repo.add_port_results(scan_id=scan_id, results=inputs)
         await pg_session.flush()
-        await pg_session.expire_all()
+        pg_session.expire_all()
 
         scan = await scan_repo.get_by_id(scan_id)
         assert scan is not None
@@ -302,7 +302,7 @@ class TestPortResults:
         ]
         await scan_repo.add_port_results(scan_id=scan_id, results=inputs)
         await pg_session.flush()
-        await pg_session.expire_all()
+        pg_session.expire_all()
 
         scan = await scan_repo.get_by_id(scan_id)
         assert scan is not None
@@ -321,7 +321,7 @@ class TestPortResults:
         scan_id = await _make_scan(scan_repo, pg_session, host_id=host_id)
 
         await scan_repo.add_port_results(scan_id=scan_id, results=[])
-        await pg_session.expire_all()
+        pg_session.expire_all()
 
         scan = await scan_repo.get_by_id(scan_id)
         assert scan is not None
@@ -368,7 +368,7 @@ class TestGetById:
         inputs = [PortResultInput(port=80, status="open", response_time_ms=1.0)]
         await scan_repo.add_port_results(scan_id=scan_id, results=inputs)
         await pg_session.flush()
-        await pg_session.expire_all()
+        pg_session.expire_all()
 
         scan = await scan_repo.get_by_id(scan_id)
         assert scan is not None

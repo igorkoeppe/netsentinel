@@ -279,9 +279,9 @@ class TestUpdate:
         await host_repo.update(host, name="updated", enabled=False)
         await pg_session.flush()
 
-        # Expire the identity map and reload from DB.
-        await pg_session.expire_all()
-        reloaded = await host_repo.get_by_id(host.id)
+        host_id = host.id
+        pg_session.expire_all()
+        reloaded = await host_repo.get_by_id(host_id)
         assert reloaded is not None
         assert reloaded.name == "updated"
         assert reloaded.enabled is False
@@ -296,8 +296,9 @@ class TestUpdate:
         await host_repo.update(host, enabled=False)
         await pg_session.flush()
 
-        await pg_session.expire_all()
-        reloaded = await host_repo.get_by_id(host.id)
+        host_id = host.id
+        pg_session.expire_all()
+        reloaded = await host_repo.get_by_id(host_id)
         assert reloaded is not None
         assert reloaded.name == "keep-me"
 

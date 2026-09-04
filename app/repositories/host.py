@@ -44,6 +44,7 @@ import logging
 from typing import cast
 
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -141,6 +142,31 @@ class HostRepository:
             raise HostAlreadyExistsError(address) from exc
         await self._session.refresh(host)
         logger.debug("Host created: id=%s address=%r", host.id, host.address)
+        return host
+
+    async def get_or_create(self, *, address: str) -> Host:
+        """Resolve a host without failing when another monitor creates it.
+
+        At PostgreSQL's default READ COMMITTED isolation, the SELECT after a
+        conflicting insert sees the row committed by the winning transaction.
+        No commit or rollback is performed here; the whole cycle stays atomic.
+        Existing host metadata is never overwritten.
+        """
+        host = await self.get_by_address(address)
+        if host is not None:
+            return host
+
+        stmt = (
+            insert(Host)
+            .values(address=address)
+            .on_conflict_do_nothing(index_elements=[Host.address])
+            .returning(Host)
+        )
+        host = await self._session.scalar(stmt)
+        if host is None:
+            host = await self.get_by_address(address)
+        if host is None:
+            raise RuntimeError("Host disappeared during concurrent registration")
         return host
 
     async def update(

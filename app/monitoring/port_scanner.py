@@ -75,6 +75,11 @@ async def scan_ports(
                           by the underlying probe on first execution).
         asyncio.CancelledError: Propagated if the task is cancelled.
     """
+    if not isinstance(max_concurrency, int) or isinstance(max_concurrency, bool):
+        raise TypeError("max_concurrency must be an integer")
+    if max_concurrency <= 0:
+        raise ValueError("max_concurrency must be strictly positive")
+
     # Deduplicate while preserving a consistent ordering for predictable behaviour.
     unique_ports = sorted(dict.fromkeys(ports))
 

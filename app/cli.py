@@ -5,13 +5,19 @@ import asyncio
 import sys
 import time
 from collections import Counter
+from typing import TYPE_CHECKING
 
 from app.core.config import settings
+from app.detection.alerts import SecurityAlert, Severity
 from app.detection.engine import MonitoringEvent, MonitoringEventType, detect_changes
+from app.detection.rules import generate_alerts
 from app.monitoring.availability import HostAvailabilityResult, check_host_availability
 from app.monitoring.monitor import monitor_host
 from app.monitoring.target import InvalidTargetError, NetworkTarget
 from app.services.history import HostHistoryResult, ScanDetailsResult
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncEngine
 
 
 def parse_ports(ports_str: str) -> list[int]:
@@ -145,6 +151,25 @@ def format_monitoring_events(events: list[MonitoringEvent]) -> None:
         print()
 
 
+def format_security_alerts(alerts: list[SecurityAlert]) -> None:
+    """Format and print a list of security alerts."""
+    if not alerts:
+        return
+
+    print("Security Alerts\n")
+    for alert in alerts:
+        timestamp_str = alert.timestamp.strftime("%H:%M:%S")
+        print(
+            f"[{timestamp_str}] [{alert.severity.value.upper()}] "
+            f"{alert.alert_type.value.upper()}"
+        )
+        print(f"Target: {alert.target.value}")
+        if alert.port is not None:
+            print(f"Port: {alert.port}")
+        print(alert.message)
+        print()
+
+
 def format_history(host_history: HostHistoryResult) -> None:
     """Format and print the host history summary."""
     print("\nNetSentinel History\n")
@@ -155,7 +180,7 @@ def format_history(host_history: HostHistoryResult) -> None:
 
     print(
         f"{'SCAN':<6} {'TIMESTAMP':<22} {'STATUS':<12} {'RESPONSE':<12} "
-        f"{'PORTS':<7} {'EVENTS'}"
+        f"{'PORTS':<7} {'EVENTS':<8} {'ALERTS'}"
     )
     for scan in host_history.scans:
         timestamp_str = scan.timestamp.strftime("%Y-%m-%d %H:%M:%S")
@@ -166,9 +191,11 @@ def format_history(host_history: HostHistoryResult) -> None:
         )
         port_count_str = str(scan.port_count) if scan.port_count is not None else "-"
         event_count_str = str(scan.event_count) if scan.event_count is not None else "-"
+        alert_count_str = str(scan.alert_count) if scan.alert_count is not None else "-"
         print(
             f"{scan.scan_id:<6} {timestamp_str:<22} {scan.status.upper():<12} "
-            f"{response_str:<12} {port_count_str:<7} {event_count_str}"
+            f"{response_str:<12} {port_count_str:<7} "
+            f"{event_count_str:<8} {alert_count_str}"
         )
     print()
 
@@ -213,11 +240,24 @@ def format_scan_details(details: ScanDetailsResult) -> None:
                 print(f"{e.previous_state.upper()} -> {e.current_state.upper()}")
             print(f"Timestamp: {e.created_at.strftime('%Y-%m-%d %H:%M:%S')}\n")
 
+    print("\nSecurity Alerts\n")
+    if not details.alerts:
+        print("none\n")
+    else:
+        for a in details.alerts:
+            print(f"[{a.severity.upper()}] {a.alert_type.upper()}")
+            if a.port is not None:
+                print(f"Port: {a.port}")
+            print(a.message)
+            print(f"Timestamp: {a.created_at.strftime('%Y-%m-%d %H:%M:%S')}\n")
+
 
 def format_session_summary(
     target: NetworkTarget,
     snapshot_count: int,
-    events: list[MonitoringEvent],
+    event_counts: Counter[MonitoringEventType],
+    alert_counts: Counter[Severity],
+    total_alerts: int,
     duration: float,
     persist: bool,
 ) -> None:
@@ -227,20 +267,30 @@ def format_session_summary(
     if persist:
         print("Persistence: enabled")
     print(f"Snapshots: {snapshot_count}")
-    print(f"Events detected: {len(events)}")
+    print(f"Events detected: {event_counts.total()}")
+    print(f"Security alerts: {total_alerts}")
     if duration >= 0:
         print(f"Duration: {duration:.1f}s")
 
     print()
-    counter = Counter(e.event_type for e in events)
     for event_type in MonitoringEventType:
-        print(f"{event_type.name}: {counter[event_type]}")
+        print(f"{event_type.name}: {event_counts[event_type]}")
+
+    print("\nAlerts by severity:\n")
+    for severity in Severity:
+        print(f"{severity.name}: {alert_counts[severity]}")
 
 
 async def run_monitor(
     target_str: str, ports: list[int], interval: int, count: int | None, persist: bool
 ) -> int:
     """Execute continuous monitoring and print snapshots."""
+    try:
+        policy = settings.get_alert_policy()
+    except ValueError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+
     if persist and not settings.DATABASE_URL:
         print(
             "error: DATABASE_URL is required when --persist is enabled", file=sys.stderr
@@ -260,10 +310,21 @@ async def run_monitor(
         print("Persistence: enabled")
 
     snapshot_count = 0
-    session_events: list[MonitoringEvent] = []
+    event_counts: Counter[MonitoringEventType] = Counter()
+    alert_counts: Counter[Severity] = Counter()
+    total_alerts = 0
     start_time = time.perf_counter()
+    engine: AsyncEngine | None = None
 
     try:
+        if persist:
+            from app.db.session import get_db_session, get_engine
+            from app.services.monitoring_persistence import (
+                MonitoringPersistenceService,
+            )
+
+            engine = get_engine()
+
         previous_snapshot: HostAvailabilityResult | None = None
         async for snapshot in monitor_host(
             target=target,
@@ -274,25 +335,29 @@ async def run_monitor(
             snapshot_count += 1
             format_snapshot(snapshot)
             events_to_persist: list[MonitoringEvent] = []
+            alerts_to_persist: list[SecurityAlert] = []
             if previous_snapshot is not None:
                 events_to_persist = detect_changes(previous_snapshot, snapshot)
                 if events_to_persist:
-                    session_events.extend(events_to_persist)
+                    event_counts.update(event.event_type for event in events_to_persist)
                     format_monitoring_events(events_to_persist)
+
+                    alerts_to_persist = generate_alerts(
+                        events_to_persist, policy=policy
+                    )
+                    if alerts_to_persist:
+                        total_alerts += len(alerts_to_persist)
+                        alert_counts.update(a.severity for a in alerts_to_persist)
+                        format_security_alerts(alerts_to_persist)
             previous_snapshot = snapshot
 
             if persist:
-                # Lazy import to avoid loading DB code if not persisting
-                from app.db.session import get_db_session, get_engine
-                from app.services.monitoring_persistence import (
-                    MonitoringPersistenceService,
-                )
-
                 try:
                     async with get_db_session() as session:
                         svc = MonitoringPersistenceService(session)
-                        # The first snapshot yields [] events, but is persisted.
-                        await svc.persist_cycle(snapshot, events_to_persist)
+                        await svc.persist_cycle(
+                            snapshot, events_to_persist, alerts_to_persist
+                        )
                 except Exception as e:
                     print(
                         f"\nerror: failed to persist monitoring cycle: {e}",
@@ -306,14 +371,19 @@ async def run_monitor(
         print(f"\nerror: unexpected failure: {e}", file=sys.stderr)
         return 1
     finally:
-        if persist:
-            from app.db.session import get_engine
-
-            engine = get_engine()
+        if engine is not None:
             await engine.dispose()
 
     duration = time.perf_counter() - start_time
-    format_session_summary(target, snapshot_count, session_events, duration, persist)
+    format_session_summary(
+        target,
+        snapshot_count,
+        event_counts,
+        alert_counts,
+        total_alerts,
+        duration,
+        persist,
+    )
 
     return 0
 
@@ -334,9 +404,10 @@ async def run_history(target_str: str | None, scan_id: int | None, limit: int) -
     from app.db.session import get_db_session, get_engine
     from app.services.history import HistoryService
 
-    engine = get_engine()
+    engine: AsyncEngine | None = None
 
     try:
+        engine = get_engine()
         if scan_id is not None:
             async with get_db_session() as session:
                 svc = HistoryService(session)
@@ -371,7 +442,8 @@ async def run_history(target_str: str | None, scan_id: int | None, limit: int) -
         print(f"error: unexpected failure: {e}", file=sys.stderr)
         return 1
     finally:
-        await engine.dispose()
+        if engine is not None:
+            await engine.dispose()
 
 
 def main() -> int:

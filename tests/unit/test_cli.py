@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.cli import main, parse_interval, parse_ports, run_monitor, run_scan
+from app.core.config import settings
 from app.monitoring.availability import HostAvailabilityResult, HostStatus
 from app.monitoring.port_scanner import PortScanResult
 from app.monitoring.target import NetworkTarget
@@ -170,9 +171,11 @@ class TestRunMonitor:
         captured = capsys.readouterr()
         assert "[12:00:00]" in captured.out
         assert "Changes detected:" not in captured.out
+        assert "Security Alerts" not in captured.out
         assert "Monitoring session summary" in captured.out
         assert "Snapshots: 1" in captured.out
         assert "Events detected: 0" in captured.out
+        assert "Security alerts: 0" in captured.out
         assert "Duration:" in captured.out
         # detect_changes should not be called on the first snapshot
         mock_detect.assert_not_called()
@@ -213,9 +216,11 @@ class TestRunMonitor:
         captured = capsys.readouterr()
         assert captured.out.count("[12:00:00]") == 2
         assert "Changes detected:" not in captured.out
+        assert "Security Alerts" not in captured.out
         assert "Monitoring session summary" in captured.out
         assert "Snapshots: 2" in captured.out
         assert "Events detected: 0" in captured.out
+        assert "Security alerts: 0" in captured.out
         assert "Duration:" in captured.out
 
         # Test 8 - detector chamado corretamente
@@ -269,11 +274,18 @@ class TestRunMonitor:
         assert "PORT_OPENED" in captured.out
         assert "Port: 80" in captured.out
         assert "CLOSED -> OPEN" in captured.out
+        # Alert output
+        assert "Security Alerts" in captured.out
+        assert "NEW_OPEN_PORT" in captured.out
+        assert "HIGH" in captured.out
+        # Session summary
         assert "Monitoring session summary" in captured.out
         assert "Snapshots: 2" in captured.out
         assert "Events detected: 1" in captured.out
+        assert "Security alerts: 1" in captured.out
         assert "PORT_OPENED: 1" in captured.out
         assert "PORT_CLOSED: 0" in captured.out
+        assert "HIGH: 1" in captured.out
         assert "Duration:" in captured.out
 
     @patch("app.cli.monitor_host")
@@ -324,11 +336,17 @@ class TestRunMonitor:
         assert "PORT_CLOSED" in captured.out
         assert "Port: 443" in captured.out
         assert "OPEN -> CLOSED" in captured.out
+        # Alert output
+        assert "Security Alerts" in captured.out
+        assert "LOW" in captured.out
+        # Session summary
         assert "Monitoring session summary" in captured.out
         assert "Snapshots: 2" in captured.out
         assert "Events detected: 1" in captured.out
+        assert "Security alerts: 1" in captured.out
         assert "PORT_OPENED: 0" in captured.out
         assert "PORT_CLOSED: 1" in captured.out
+        assert "LOW: 1" in captured.out
         assert "Duration:" in captured.out
 
     @patch("app.cli.monitor_host")
@@ -387,11 +405,20 @@ class TestRunMonitor:
         assert "AVAILABLE -> UNAVAILABLE" in captured.out
         assert "HOST_BECAME_AVAILABLE" in captured.out
         assert "UNAVAILABLE -> AVAILABLE" in captured.out
+        # Alert output
+        assert "HOST_DOWN" in captured.out
+        assert "MEDIUM" in captured.out
+        assert "HOST_RECOVERED" in captured.out
+        assert "INFO" in captured.out
+        # Session summary
         assert "Monitoring session summary" in captured.out
         assert "Snapshots: 3" in captured.out
         assert "Events detected: 2" in captured.out
+        assert "Security alerts: 2" in captured.out
         assert "HOST_BECAME_UNAVAILABLE: 1" in captured.out
         assert "HOST_BECAME_AVAILABLE: 1" in captured.out
+        assert "MEDIUM: 1" in captured.out
+        assert "INFO: 1" in captured.out
 
     @patch("app.cli.monitor_host")
     @patch("app.cli.detect_changes")
@@ -449,11 +476,20 @@ class TestRunMonitor:
         assert "Port: 80" in captured.out
         assert "PORT_CLOSED" in captured.out
         assert "Port: 443" in captured.out
+        # Alert output
+        assert "Security Alerts" in captured.out
+        assert "NEW_OPEN_PORT" in captured.out
+        assert "HIGH" in captured.out
+        assert "LOW" in captured.out
+        # Session summary
         assert "Monitoring session summary" in captured.out
         assert "Snapshots: 2" in captured.out
         assert "Events detected: 2" in captured.out
+        assert "Security alerts: 2" in captured.out
         assert "PORT_OPENED: 1" in captured.out
         assert "PORT_CLOSED: 1" in captured.out
+        assert "HIGH: 1" in captured.out
+        assert "LOW: 1" in captured.out
         assert "Duration:" in captured.out
 
     @patch("app.cli.monitor_host")
@@ -474,7 +510,193 @@ class TestRunMonitor:
         assert "Monitoring session summary" in captured.out
         assert "Snapshots: 0" in captured.out
         assert "Events detected: 0" in captured.out
+        assert "Security alerts: 0" in captured.out
         assert "Duration:" in captured.out
+
+    @patch("app.cli.monitor_host")
+    @patch("app.cli.detect_changes")
+    async def test_custom_alert_severity_in_output(
+        self,
+        mock_detect: MagicMock,
+        mock_monitor_host: MagicMock,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Configured alert severity appears in both alert block and session summary."""
+        monkeypatch.setattr(settings, "ALERT_SEVERITY_NEW_OPEN_PORT", "MEDIUM")
+        target = NetworkTarget.parse("127.0.0.1")
+        from app.detection.engine import MonitoringEvent, MonitoringEventType
+
+        event = MonitoringEvent(
+            event_type=MonitoringEventType.PORT_OPENED,
+            target=target,
+            timestamp=datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC),
+            port=80,
+            previous_state="closed",
+            current_state="open",
+        )
+        snapshot = HostAvailabilityResult(
+            target=target,
+            status=HostStatus.AVAILABLE,
+            response_time_ms=1.5,
+            scan_result=PortScanResult(
+                target=target,
+                started_at=datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC),
+                finished_at=datetime.now(UTC),
+                duration_ms=10.0,
+                ports=(TcpProbeResult(target, 80, PortStatus.OPEN, 2.0),),
+            ),
+        )
+
+        async def mock_generator():
+            yield snapshot
+            yield snapshot
+
+        mock_monitor_host.return_value = mock_generator()
+        mock_detect.return_value = [event]
+
+        code = await run_monitor("127.0.0.1", [80], 5, 2, False)
+        assert code == 0
+
+        captured = capsys.readouterr()
+        # Alert output should have MEDIUM instead of HIGH
+        assert "Security Alerts" in captured.out
+        assert "[MEDIUM] NEW_OPEN_PORT" in captured.out
+        assert "HIGH: 0" in captured.out
+        assert "MEDIUM: 1" in captured.out
+
+    async def test_invalid_alert_severity_fails_before_monitoring(
+        self,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Invalid alert severity setting prevents monitoring from starting."""
+        monkeypatch.setattr(settings, "ALERT_SEVERITY_NEW_OPEN_PORT", "EXTREME")
+        code = await run_monitor("127.0.0.1", [80], 5, 2, False)
+        assert code == 1
+
+        captured = capsys.readouterr()
+        assert (
+            "error: Invalid alert severity for ALERT_SEVERITY_NEW_OPEN_PORT: 'EXTREME'"
+            in captured.err
+        )
+
+    @patch("app.cli.monitor_host")
+    @patch("app.cli.detect_changes")
+    async def test_expected_port_in_monitor_output(
+        self,
+        mock_detect: MagicMock,
+        mock_monitor_host: MagicMock,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Expected open port produces EXPECTED_OPEN_PORT alert with INFO severity."""
+        monkeypatch.setattr(settings, "EXPECTED_TCP_PORTS", "80,443")
+        target = NetworkTarget.parse("127.0.0.1")
+        from app.detection.engine import MonitoringEvent, MonitoringEventType
+
+        event = MonitoringEvent(
+            event_type=MonitoringEventType.PORT_OPENED,
+            target=target,
+            timestamp=datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC),
+            port=80,
+            previous_state="closed",
+            current_state="open",
+        )
+        snapshot = HostAvailabilityResult(
+            target=target,
+            status=HostStatus.AVAILABLE,
+            response_time_ms=1.5,
+            scan_result=PortScanResult(
+                target=target,
+                started_at=datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC),
+                finished_at=datetime.now(UTC),
+                duration_ms=10.0,
+                ports=(TcpProbeResult(target, 80, PortStatus.OPEN, 2.0),),
+            ),
+        )
+
+        async def mock_generator():
+            yield snapshot
+            yield snapshot
+
+        mock_monitor_host.return_value = mock_generator()
+        mock_detect.return_value = [event]
+
+        code = await run_monitor("127.0.0.1", [80], 5, 2, False)
+        assert code == 0
+
+        captured = capsys.readouterr()
+        assert "PORT_OPENED" in captured.out
+        assert "[INFO] EXPECTED_OPEN_PORT" in captured.out
+        assert "Expected TCP port 80 became open on 127.0.0.1." in captured.out
+        assert "INFO: 1" in captured.out
+
+    @patch("app.cli.monitor_host")
+    @patch("app.cli.detect_changes")
+    async def test_unexpected_port_in_monitor_output(
+        self,
+        mock_detect: MagicMock,
+        mock_monitor_host: MagicMock,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Unexpected open port produces UNEXPECTED_OPEN_PORT alert with
+        HIGH severity.
+        """
+        monkeypatch.setattr(settings, "EXPECTED_TCP_PORTS", "443")
+        target = NetworkTarget.parse("127.0.0.1")
+        from app.detection.engine import MonitoringEvent, MonitoringEventType
+
+        event = MonitoringEvent(
+            event_type=MonitoringEventType.PORT_OPENED,
+            target=target,
+            timestamp=datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC),
+            port=80,
+            previous_state="closed",
+            current_state="open",
+        )
+        snapshot = HostAvailabilityResult(
+            target=target,
+            status=HostStatus.AVAILABLE,
+            response_time_ms=1.5,
+            scan_result=PortScanResult(
+                target=target,
+                started_at=datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC),
+                finished_at=datetime.now(UTC),
+                duration_ms=10.0,
+                ports=(TcpProbeResult(target, 80, PortStatus.OPEN, 2.0),),
+            ),
+        )
+
+        async def mock_generator():
+            yield snapshot
+            yield snapshot
+
+        mock_monitor_host.return_value = mock_generator()
+        mock_detect.return_value = [event]
+
+        code = await run_monitor("127.0.0.1", [80], 5, 2, False)
+        assert code == 0
+
+        captured = capsys.readouterr()
+        assert "PORT_OPENED" in captured.out
+        assert "[HIGH] UNEXPECTED_OPEN_PORT" in captured.out
+        assert "Unexpected TCP port 80 became open on 127.0.0.1." in captured.out
+        assert "HIGH: 1" in captured.out
+
+    async def test_invalid_expected_ports_fails_before_monitoring(
+        self,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Invalid expected TCP ports setting prevents monitoring from starting."""
+        monkeypatch.setattr(settings, "EXPECTED_TCP_PORTS", "80,abc")
+        code = await run_monitor("127.0.0.1", [80], 5, 2, False)
+        assert code == 1
+
+        captured = capsys.readouterr()
+        assert "error: Invalid expected TCP port: 'abc'" in captured.err
 
 
 class TestMain:

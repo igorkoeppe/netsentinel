@@ -106,7 +106,11 @@ async def pg_connection(pg_engine):  # type: ignore[return]
 @pytest_asyncio.fixture()
 async def pg_session(pg_connection: AsyncConnection) -> AsyncSession:  # type: ignore[return]
     """Provide an AsyncSession bound to the per-test rolled-back connection."""
-    session = AsyncSession(bind=pg_connection, expire_on_commit=False)
+    session = AsyncSession(
+        bind=pg_connection,
+        expire_on_commit=False,
+        join_transaction_mode="create_savepoint",
+    )
     yield session  # type: ignore[misc]
     await session.close()
 

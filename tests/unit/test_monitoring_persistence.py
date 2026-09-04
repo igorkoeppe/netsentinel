@@ -67,8 +67,7 @@ def _setup_service() -> tuple[MagicMock, MonitoringPersistenceService]:
 
     service = MonitoringPersistenceService(session)
     service._host_repo = MagicMock()
-    service._host_repo.get_by_address = AsyncMock()
-    service._host_repo.create = AsyncMock()
+    service._host_repo.get_or_create = AsyncMock()
 
     service._scan_repo = MagicMock()
     service._scan_repo.create = AsyncMock()
@@ -93,7 +92,7 @@ class TestPersistCycle:
 
         mock_host = MagicMock()
         mock_host.id = 1
-        service._host_repo.get_by_address.return_value = mock_host
+        service._host_repo.get_or_create.return_value = mock_host
 
         mock_scan = MagicMock()
         mock_scan.id = 2
@@ -102,18 +101,17 @@ class TestPersistCycle:
 
         await service.persist_cycle(_make_snapshot(), [])
 
-        service._host_repo.get_by_address.assert_awaited_once_with("10.0.0.1")
+        service._host_repo.get_or_create.assert_awaited_once_with(address="10.0.0.1")
         service._host_repo.create.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_creates_host_if_not_exists(self) -> None:
-        """If host does not exist, it is created."""
+    async def test_uses_resolved_host_for_scan(self) -> None:
+        """The conflict-safe repository supplies the ID for the whole cycle."""
         session, service = _setup_service()
 
-        service._host_repo.get_by_address.return_value = None
         mock_host = MagicMock()
         mock_host.id = 1
-        service._host_repo.create.return_value = mock_host
+        service._host_repo.get_or_create.return_value = mock_host
 
         mock_scan = MagicMock()
         mock_scan.id = 2
@@ -121,13 +119,13 @@ class TestPersistCycle:
 
         await service.persist_cycle(_make_snapshot(), [])
 
-        service._host_repo.create.assert_awaited_once_with(address="10.0.0.1")
+        assert service._scan_repo.create.call_args.kwargs["host_id"] == 1
 
     @pytest.mark.asyncio
     async def test_commits_on_success(self) -> None:
         """A successful cycle must commit the transaction."""
         session, service = _setup_service()
-        service._host_repo.get_by_address.return_value = MagicMock()
+        service._host_repo.get_or_create.return_value = MagicMock()
         service._scan_repo.create.return_value = MagicMock()
 
         await service.persist_cycle(_make_snapshot(), [])
@@ -141,7 +139,7 @@ class TestPersistCycle:
         session, service = _setup_service()
 
         mock_host = MagicMock()
-        service._host_repo.get_by_address.return_value = mock_host
+        service._host_repo.get_or_create.return_value = mock_host
 
         # Simulate failure during scan creation
         error = RuntimeError("DB down")
@@ -157,7 +155,7 @@ class TestPersistCycle:
     async def test_passes_port_results_correctly(self) -> None:
         """Port results from the snapshot are mapped and passed to scan_repo."""
         session, service = _setup_service()
-        service._host_repo.get_by_address.return_value = MagicMock(id=10)
+        service._host_repo.get_or_create.return_value = MagicMock(id=10)
         service._scan_repo.create.return_value = MagicMock(id=20)
 
         snapshot = _make_snapshot()
@@ -176,7 +174,7 @@ class TestPersistCycle:
     async def test_passes_events_correctly(self) -> None:
         """Events are passed to event_repo with the correct host_id and scan_id."""
         session, service = _setup_service()
-        service._host_repo.get_by_address.return_value = MagicMock(id=10)
+        service._host_repo.get_or_create.return_value = MagicMock(id=10)
         service._scan_repo.create.return_value = MagicMock(id=20)
 
         event = _make_event()

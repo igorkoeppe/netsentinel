@@ -176,6 +176,7 @@ class TestRunHistory:
             response_time_ms=1.2,
             port_count=3,
             event_count=1,
+            alert_count=2,
         )
         host_result = HostHistoryResult(
             host_id=1, address="127.0.0.1", name=None, enabled=True, scans=[scan]
@@ -195,10 +196,13 @@ class TestRunHistory:
         assert "Target: 127.0.0.1" in captured.out
         assert "SCAN" in captured.out
         assert "STATUS" in captured.out
+        assert "EVENTS" in captured.out
+        assert "ALERTS" in captured.out
         assert "42" in captured.out
         assert "AVAILABLE" in captured.out
         assert "3" in captured.out
         assert "1" in captured.out
+        assert "2" in captured.out
 
     @patch("app.db.session.get_engine")
     @patch("app.db.session.get_db_session")
@@ -230,7 +234,7 @@ class TestRunHistory:
     @patch("app.db.session.get_engine")
     @patch("app.db.session.get_db_session")
     @patch("app.services.history.HistoryService")
-    async def test_scan_details(
+    async def test_scan_details_with_alerts(
         self,
         mock_svc_cls: MagicMock,
         mock_get_session: MagicMock,
@@ -262,6 +266,28 @@ class TestRunHistory:
                 created_at=datetime(2026, 9, 2, 19, 20, 0, tzinfo=UTC),
             ),
         ]
+        from app.services.history import AlertSummary
+
+        alerts = [
+            AlertSummary(
+                id=1,
+                alert_type="new_open_port",
+                severity="high",
+                message="New TCP port 443 detected on 127.0.0.1.",
+                port=443,
+                created_at=datetime(2026, 9, 2, 19, 20, 0, tzinfo=UTC),
+                monitoring_event_id=10,
+            ),
+            AlertSummary(
+                id=2,
+                alert_type="host_recovered",
+                severity="info",
+                message="Host 127.0.0.1 is available again.",
+                port=None,
+                created_at=datetime(2026, 9, 2, 19, 20, 0, tzinfo=UTC),
+                monitoring_event_id=11,
+            ),
+        ]
         details = ScanDetailsResult(
             scan_id=42,
             status="available",
@@ -270,6 +296,7 @@ class TestRunHistory:
             finished_at=datetime(2026, 9, 2, 19, 20, 0, tzinfo=UTC),
             ports=ports,
             events=events,
+            alerts=alerts,
         )
 
         mock_svc = MagicMock()
@@ -300,6 +327,54 @@ class TestRunHistory:
         assert "CLOSED -> OPEN" in captured.out
         assert "HOST_BECAME_AVAILABLE" in captured.out
         assert "UNAVAILABLE -> AVAILABLE" in captured.out
+
+        # Check alerts
+        assert "Security Alerts" in captured.out
+        assert "[HIGH] NEW_OPEN_PORT" in captured.out
+        assert "New TCP port 443 detected on 127.0.0.1." in captured.out
+        assert "[INFO] HOST_RECOVERED" in captured.out
+        assert "Host 127.0.0.1 is available again." in captured.out
+        assert "Port: None" not in captured.out
+
+    @patch("app.db.session.get_engine")
+    @patch("app.db.session.get_db_session")
+    @patch("app.services.history.HistoryService")
+    async def test_scan_details_without_alerts(
+        self,
+        mock_svc_cls: MagicMock,
+        mock_get_session: MagicMock,
+        mock_get_engine: MagicMock,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        mock_engine = MagicMock()
+        mock_engine.dispose = AsyncMock()
+        mock_get_engine.return_value = mock_engine
+
+        details = ScanDetailsResult(
+            scan_id=42,
+            status="available",
+            response_time_ms=1.2,
+            started_at=datetime(2026, 9, 2, 19, 19, 59, tzinfo=UTC),
+            finished_at=datetime(2026, 9, 2, 19, 20, 0, tzinfo=UTC),
+            ports=[],
+            events=[],
+            alerts=[],
+        )
+
+        mock_svc = MagicMock()
+        mock_svc.get_scan_details = AsyncMock(return_value=details)
+        mock_svc_cls.return_value = mock_svc
+
+        mock_session_ctx = AsyncMock()
+        mock_session_ctx.__aenter__.return_value = AsyncMock()
+        mock_get_session.return_value = mock_session_ctx
+
+        code = await run_history(None, 42, 10)
+        assert code == 0
+        captured = capsys.readouterr()
+
+        assert "Security Alerts" in captured.out
+        assert "none" in captured.out
 
 
 class TestMainHistoryParser:

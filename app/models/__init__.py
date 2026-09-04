@@ -11,10 +11,12 @@ from app.models.host import Host
 from app.models.monitoring_event import MonitoringEventRecord
 from app.models.port_result import PortResult
 from app.models.scan import Scan
+from app.models.security_alert import SecurityAlertRecord
 
 __all__ = [
     "Host",
-    "Scan",
-    "PortResult",
     "MonitoringEventRecord",
+    "PortResult",
+    "Scan",
+    "SecurityAlertRecord",
 ]

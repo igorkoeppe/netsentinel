@@ -6,6 +6,7 @@ It does not perform DNS resolution, ping or socket connections.
 
 import ipaddress
 import re
+import unicodedata
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -39,6 +40,9 @@ _PORT_RE = re.compile(r":\d+$")
 # Used to reject malformed IPv4 before falling through to hostname parsing.
 _DOTTED_DECIMAL_RE = re.compile(r"^\d+(\.\d+)+$")
 
+# Scoped IPv6 accepts numeric interface IDs and conventional interface names.
+_SCOPE_ID_RE = re.compile(r"[a-zA-Z0-9_.-]+")
+
 
 def _looks_like_url(value: str) -> bool:
     return bool(_URL_SCHEME_RE.match(value))
@@ -71,6 +75,8 @@ def _parse_ip(value: str) -> tuple[str, TargetType] | None:
         addr = ipaddress.ip_address(value)
         if isinstance(addr, ipaddress.IPv4Address):
             return str(addr), TargetType.IPV4
+        if addr.scope_id is not None and not _SCOPE_ID_RE.fullmatch(addr.scope_id):
+            return None
         return addr.compressed, TargetType.IPV6
     except ValueError:
         return None
@@ -112,6 +118,11 @@ class NetworkTarget:
             InvalidTargetError: If the input is empty, contains spaces,
                 looks like a URL, includes a port, or fails validation.
         """
+        # Validate before stripping: controls must not disappear during parsing
+        # or reach terminal output via an IPv6 scope identifier.
+        if any(unicodedata.category(char).startswith("C") for char in raw):
+            raise InvalidTargetError(raw, "target must not contain control characters")
+
         stripped = raw.strip()
 
         if not stripped:

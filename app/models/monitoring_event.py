@@ -21,6 +21,7 @@ from app.db.base import Base
 if TYPE_CHECKING:
     from app.models.host import Host
     from app.models.scan import Scan
+    from app.models.security_alert import SecurityAlertRecord
 
 
 class MonitoringEventRecord(Base):
@@ -64,6 +65,11 @@ class MonitoringEventRecord(Base):
     scan: Mapped[Scan | None] = relationship(
         "Scan",
         back_populates="events",
+        lazy="select",
+    )
+    alert: Mapped[SecurityAlertRecord | None] = relationship(
+        "SecurityAlertRecord",
+        back_populates="monitoring_event",
         lazy="select",
     )
 

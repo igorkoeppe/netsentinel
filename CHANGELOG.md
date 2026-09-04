@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.4.0] - Unreleased
+
+### Added
+- Security alert domain model (`SecurityAlert`, `AlertType`, `Severity`).
+- Initial alert rules for host and TCP port state changes.
+- Created Alert Engine (`AlertEngine`) as a pure domain service to transform `MonitoringEvent`s into `SecurityAlert`s based on detection rules (`DetectionRule`).
+- Transactional persistence of security alerts with monitoring cycles.
+- Persistent security alert storage during `netsentinel monitor --persist`.
+- Real-time security alert generation during continuous monitoring.
+- Monitoring session alert summaries grouped by severity.
+- Unit tests for all four alert rules, ordering, timestamp/target/port preservation, and edge cases.
+- `AlertRepository` extensions for ordering by `created_at ASC, id ASC` on scan lookup and batch counting via `count_by_scans` without N+1 queries.
+- Integration of persisted security alerts into `HistoryService` (`get_scan_details` includes `AlertSummary` list; `get_host_history` includes `alert_count` per scan).
+- Updated CLI `netsentinel history` to display `ALERTS` column in host history summary and `Security Alerts` section in detailed scan view (`--scan`).
+- Configurable alert severity levels via `AlertPolicy` and environment variables (`ALERT_SEVERITY_NEW_OPEN_PORT`, `ALERT_SEVERITY_PORT_CLOSED`, `ALERT_SEVERITY_HOST_DOWN`, `ALERT_SEVERITY_HOST_RECOVERED`), preserving default values and pure deterministic Alert Engine architecture.
+- Expected TCP port policy for distinguishing expected and unexpected newly opened ports (`EXPECTED_TCP_PORTS`).
+- Dedicated `EXPECTED_OPEN_PORT` and `UNEXPECTED_OPEN_PORT` security alerts with configurable severities (`ALERT_SEVERITY_EXPECTED_OPEN_PORT`, `ALERT_SEVERITY_UNEXPECTED_OPEN_PORT`).
+
+
+
+## [Unreleased] — Reliability and security fixes
+
+- Restrict the development PostgreSQL port to loopback and require private passwords.
+- Bootstrap a non-admin runtime database role; separate migration credentials.
+- Reject non-positive scanner configuration and invalid direct concurrency arguments.
+- Reject control characters and malformed scope identifiers in network targets.
+- Resolve concurrent host registration without failing an entire monitoring cycle.
+- Keep session event counters instead of an unbounded in-memory event history.
+- Handle database engine initialization failures within the CLI error boundary.
+- Add regression tests and document safe upgrades of existing database volumes.
+
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),

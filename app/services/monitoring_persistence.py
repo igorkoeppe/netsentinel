@@ -8,9 +8,11 @@ atomically.
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from app.repositories.alert import AlertRepository
 from app.repositories.host import HostRepository
 from app.repositories.monitoring_event import MonitoringEventRepository
 from app.repositories.scan import PortResultInput, ScanRepository
@@ -18,10 +20,12 @@ from app.repositories.scan import PortResultInput, ScanRepository
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
+    from app.detection.alerts import SecurityAlert
     from app.detection.engine import MonitoringEvent
     from app.models.host import Host
     from app.models.monitoring_event import MonitoringEventRecord
     from app.models.scan import Scan
+    from app.models.security_alert import SecurityAlertRecord
     from app.monitoring.monitor import MonitoringSnapshot
 
 logger = logging.getLogger(__name__)
@@ -34,6 +38,13 @@ class PersistedMonitoringCycle:
     host: Host
     scan: Scan
     events: list[MonitoringEventRecord]
+    alerts: list[SecurityAlertRecord]
+
+
+class AlertEventCorrelationError(Exception):
+    """Raised when an alert cannot be correlated to a monitoring event."""
+
+    pass
 
 
 class MonitoringPersistenceService:
@@ -48,11 +59,13 @@ class MonitoringPersistenceService:
         self._host_repo = HostRepository(session)
         self._scan_repo = ScanRepository(session)
         self._event_repo = MonitoringEventRepository(session)
+        self._alert_repo = AlertRepository(session)
 
     async def persist_cycle(
         self,
         snapshot: MonitoringSnapshot,
         events: list[MonitoringEvent],
+        alerts: Sequence[SecurityAlert] = (),
     ) -> PersistedMonitoringCycle:
         """Persist a complete monitoring cycle in a single transaction.
 
@@ -63,7 +76,7 @@ class MonitoringPersistenceService:
         4. Persist all monitoring events, tied to the host and the new scan.
         5. Commit the transaction.
 
-        If any operation fails (e.g. database error, concurrent host creation),
+        If any operation fails (e.g. database error),
         the entire transaction is rolled back and the exception is re-raised.
 
         Parameters
@@ -88,9 +101,7 @@ class MonitoringPersistenceService:
 
         try:
             # 1. Resolve Host
-            host = await self._host_repo.get_by_address(address)
-            if host is None:
-                host = await self._host_repo.create(address=address)
+            host = await self._host_repo.get_or_create(address=address)
 
             # 2. Create Scan
             scan = await self._scan_repo.create(
@@ -122,19 +133,48 @@ class MonitoringPersistenceService:
                 events=events,
             )
 
-            # 5. Commit atomic transaction
+            # 5. Create Security Alerts
+            alerts_to_create: list[tuple[SecurityAlert, int | None]] = []
+            for alert in alerts:
+                matching_record = None
+                for event_obj, event_rec in zip(events, records, strict=True):
+                    if (
+                        event_obj.target == alert.target
+                        and event_obj.port == alert.port
+                        and event_obj.timestamp == alert.timestamp
+                        and str(event_obj.event_type) == alert.source_event_type
+                    ):
+                        matching_record = event_rec
+                        break
+
+                if matching_record is None:
+                    raise AlertEventCorrelationError(
+                        f"Could not correlate alert {alert} with any event"
+                    )
+
+                alerts_to_create.append((alert, matching_record.id))
+
+            alert_records = await self._alert_repo.create_many(
+                host_id=host.id,
+                scan_id=scan.id,
+                alerts=alerts_to_create,
+            )
+
+            # 6. Commit atomic transaction
             await self._session.commit()
 
             logger.debug(
-                "Persisted monitoring cycle for host=%s scan=%s events=%d",
+                "Persisted monitoring cycle for host=%s scan=%s events=%d alerts=%d",
                 host.id,
                 scan.id,
                 len(records),
+                len(alert_records),
             )
             return PersistedMonitoringCycle(
                 host=host,
                 scan=scan,
                 events=records,
+                alerts=alert_records,
             )
 
         except Exception as e:
