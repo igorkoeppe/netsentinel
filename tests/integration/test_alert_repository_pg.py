@@ -7,13 +7,21 @@ run.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.detection.alerts import AlertType, SecurityAlert, Severity
+from app.detection.alerts import (
+    AlertLifecycle,
+    AlertStatus,
+    AlertType,
+    SecurityAlert,
+    Severity,
+    acknowledge_alert,
+    resolve_alert,
+)
 from app.detection.engine import MonitoringEvent, MonitoringEventType
 from app.monitoring.target import NetworkTarget
 from app.repositories.alert import AlertRepository
@@ -312,3 +320,247 @@ class TestFKViolation:
                 monitoring_event_id=None,
                 alert=_port_opened_alert(80),
             )
+
+
+class TestLifecyclePersistence:
+    async def test_create_alert_defaults_to_open_lifecycle(
+        self,
+        host_repo: HostRepository,
+        pg_session: AsyncSession,
+    ) -> None:
+        alert_repo = AlertRepository(pg_session)
+        host_id = await _make_host(host_repo, "10.5.0.1")
+        record = await alert_repo.create(
+            host_id=host_id,
+            scan_id=None,
+            monitoring_event_id=None,
+            alert=_port_opened_alert(80),
+        )
+
+        assert record.status == "OPEN"
+        assert record.status_enum == AlertStatus.OPEN
+        assert record.acknowledged_at is None
+        assert record.resolved_at is None
+
+        lifecycle = record.to_lifecycle()
+        assert lifecycle.status == AlertStatus.OPEN
+        assert lifecycle.acknowledged_at is None
+        assert lifecycle.resolved_at is None
+        assert lifecycle.is_open is True
+        assert lifecycle.is_acknowledged is False
+        assert lifecycle.is_resolved is False
+
+    async def test_create_many_alerts_defaults_to_open_lifecycle(
+        self,
+        host_repo: HostRepository,
+        pg_session: AsyncSession,
+    ) -> None:
+        alert_repo = AlertRepository(pg_session)
+        host_id = await _make_host(host_repo, "10.5.0.2")
+        records = await alert_repo.create_many(
+            host_id=host_id,
+            scan_id=None,
+            alerts=[
+                (_port_opened_alert(80), None),
+                (_port_opened_alert(443), None),
+            ],
+        )
+
+        assert len(records) == 2
+        for r in records:
+            assert r.status == "OPEN"
+            assert r.acknowledged_at is None
+            assert r.resolved_at is None
+            assert r.status_enum == AlertStatus.OPEN
+
+    async def test_update_lifecycle_acknowledge(
+        self,
+        host_repo: HostRepository,
+        pg_session: AsyncSession,
+    ) -> None:
+        alert_repo = AlertRepository(pg_session)
+        host_id = await _make_host(host_repo, "10.5.0.3")
+        created = await alert_repo.create(
+            host_id=host_id,
+            scan_id=None,
+            monitoring_event_id=None,
+            alert=_port_opened_alert(80, timestamp=_NOW),
+        )
+
+        alert_id = created.id
+        ack_time = _NOW + timedelta(minutes=5)
+        # Transition in domain
+        ack_lifecycle = acknowledge_alert(created.to_lifecycle(), at=ack_time)
+        assert ack_lifecycle.status == AlertStatus.ACKNOWLEDGED
+        assert ack_lifecycle.acknowledged_at == ack_time
+
+        # Update via repository
+        updated = await alert_repo.update_lifecycle(alert_id, ack_lifecycle)
+        assert updated is not None
+        assert updated.id == alert_id
+        assert updated.status == "ACKNOWLEDGED"
+        assert updated.status_enum == AlertStatus.ACKNOWLEDGED
+        assert updated.acknowledged_at == ack_time
+        assert updated.resolved_at is None
+
+        # Fetch fresh from database to confirm persistence
+        pg_session.expire_all()
+        refetched = await alert_repo.get_by_id(alert_id)
+        assert refetched is not None
+        assert refetched.status == "ACKNOWLEDGED"
+        assert refetched.acknowledged_at == ack_time
+        assert refetched.resolved_at is None
+
+    async def test_update_lifecycle_resolve_after_acknowledge(
+        self,
+        host_repo: HostRepository,
+        pg_session: AsyncSession,
+    ) -> None:
+        alert_repo = AlertRepository(pg_session)
+        host_id = await _make_host(host_repo, "10.5.0.4")
+        created = await alert_repo.create(
+            host_id=host_id,
+            scan_id=None,
+            monitoring_event_id=None,
+            alert=_port_opened_alert(80, timestamp=_NOW),
+        )
+        alert_id = created.id
+
+        # Step 1: Acknowledge
+        ack_time = _NOW + timedelta(minutes=5)
+        ack_lifecycle = acknowledge_alert(created.to_lifecycle(), at=ack_time)
+        await alert_repo.update_lifecycle(alert_id, ack_lifecycle)
+
+        # Step 2: Resolve
+        res_time = _NOW + timedelta(minutes=15)
+        res_lifecycle = resolve_alert(ack_lifecycle, at=res_time)
+        updated = await alert_repo.update_lifecycle(alert_id, res_lifecycle)
+
+        assert updated is not None
+        assert updated.status == "RESOLVED"
+        assert updated.status_enum == AlertStatus.RESOLVED
+        assert updated.acknowledged_at == ack_time
+        assert updated.resolved_at == res_time
+
+        pg_session.expire_all()
+        refetched = await alert_repo.get_by_id(alert_id)
+        assert refetched is not None
+        assert refetched.status == "RESOLVED"
+        assert refetched.acknowledged_at == ack_time
+        assert refetched.resolved_at == res_time
+
+    async def test_update_lifecycle_direct_resolve(
+        self,
+        host_repo: HostRepository,
+        pg_session: AsyncSession,
+    ) -> None:
+        alert_repo = AlertRepository(pg_session)
+        host_id = await _make_host(host_repo, "10.5.0.5")
+        created = await alert_repo.create(
+            host_id=host_id,
+            scan_id=None,
+            monitoring_event_id=None,
+            alert=_port_opened_alert(80, timestamp=_NOW),
+        )
+        alert_id = created.id
+
+        # Direct resolve from OPEN
+        res_time = _NOW + timedelta(minutes=10)
+        res_lifecycle = resolve_alert(created.to_lifecycle(), at=res_time)
+        updated = await alert_repo.update_lifecycle(alert_id, res_lifecycle)
+
+        assert updated is not None
+        assert updated.status == "RESOLVED"
+        assert updated.acknowledged_at is None
+        assert updated.resolved_at == res_time
+
+        pg_session.expire_all()
+        refetched = await alert_repo.get_by_id(alert_id)
+        assert refetched is not None
+        assert refetched.status == "RESOLVED"
+        assert refetched.acknowledged_at is None
+        assert refetched.resolved_at == res_time
+
+    async def test_update_lifecycle_nonexistent_alert_returns_none(
+        self,
+        pg_session: AsyncSession,
+    ) -> None:
+        alert_repo = AlertRepository(pg_session)
+        result = await alert_repo.update_lifecycle(999_999, AlertLifecycle())
+        assert result is None
+
+    async def test_update_lifecycle_rollback(
+        self,
+        host_repo: HostRepository,
+        pg_session: AsyncSession,
+    ) -> None:
+        alert_repo = AlertRepository(pg_session)
+        host_id = await _make_host(host_repo, "10.5.0.6")
+        created = await alert_repo.create(
+            host_id=host_id,
+            scan_id=None,
+            monitoring_event_id=None,
+            alert=_port_opened_alert(80, timestamp=_NOW),
+        )
+        alert_id = created.id
+
+        # Perform lifecycle update inside a nested transaction that rolls back
+        ack_time = _NOW + timedelta(minutes=5)
+        ack_lifecycle = acknowledge_alert(created.to_lifecycle(), at=ack_time)
+
+        try:
+            async with pg_session.begin_nested():
+                await alert_repo.update_lifecycle(alert_id, ack_lifecycle)
+                raise RuntimeError("Forced rollback of savepoint")
+        except RuntimeError:
+            pass
+
+        pg_session.expire_all()
+        refetched = await alert_repo.get_by_id(alert_id)
+        assert refetched is not None
+        # Must retain original OPEN state
+        assert refetched.status == "OPEN"
+        assert refetched.acknowledged_at is None
+        assert refetched.resolved_at is None
+
+    async def test_read_methods_preserve_lifecycle(
+        self,
+        host_repo: HostRepository,
+        scan_repo: ScanRepository,
+        pg_session: AsyncSession,
+    ) -> None:
+        alert_repo = AlertRepository(pg_session)
+        host_id = await _make_host(host_repo, "10.5.0.7")
+        scan_id = await _make_scan(scan_repo, host_id)
+
+        created = await alert_repo.create(
+            host_id=host_id,
+            scan_id=scan_id,
+            monitoring_event_id=None,
+            alert=_port_opened_alert(80, timestamp=_NOW),
+        )
+        alert_id = created.id
+
+        ack_time = _NOW + timedelta(minutes=5)
+        ack_lifecycle = acknowledge_alert(created.to_lifecycle(), at=ack_time)
+        await alert_repo.update_lifecycle(alert_id, ack_lifecycle)
+
+        pg_session.expire_all()
+
+        # 1. get_by_id
+        by_id = await alert_repo.get_by_id(alert_id)
+        assert by_id is not None
+        assert by_id.status == "ACKNOWLEDGED"
+        assert by_id.acknowledged_at == ack_time
+
+        # 2. list_by_host
+        by_host = await alert_repo.list_by_host(host_id)
+        assert len(by_host) == 1
+        assert by_host[0].status == "ACKNOWLEDGED"
+        assert by_host[0].acknowledged_at == ack_time
+
+        # 3. list_by_scan
+        by_scan = await alert_repo.list_by_scan(scan_id)
+        assert len(by_scan) == 1
+        assert by_scan[0].status == "ACKNOWLEDGED"
+        assert by_scan[0].acknowledged_at == ack_time

@@ -412,14 +412,19 @@ Features:
 
 
 
-### v0.5 — Integração Persistence + Monitor
+### v0.5 — Alert Lifecycle & Triage (completed)
 
-- comparação entre scans;
-- host offline;
-- nova porta aberta;
-- porta fechada;
-- latência elevada;
-- severidades.
+- modelo de domínio do lifecycle de SecurityAlerts (`AlertStatus`, `AlertLifecycle`);
+- estados: `OPEN`, `ACKNOWLEDGED`, `RESOLVED`;
+- regras estritas de transição de estado e validação de timestamps;
+- persistência de lifecycle no PostgreSQL (`status`, `acknowledged_at`, `resolved_at`);
+- migração Alembic `0003_alert_lifecycle` com backfill para `OPEN`;
+- atualização de lifecycle via `AlertRepository.update_lifecycle`;
+- service de triagem `AlertTriageService` orquestrando transições e transações atômicas;
+- service de consulta `AlertQueryService` e comando CLI `netsentinel alerts` (interface read-only) com `--limit` e prevenção de N+1;
+- subcomandos CLI de triagem `netsentinel alerts acknowledge <ALERT_ID>` e `netsentinel alerts resolve <ALERT_ID>`;
+- filtros read-only na listagem de alerts (`--status` e `--severity`) combinados via SQL;
+- testes unitários e testes de integração no PostgreSQL.
 
 ### v0.6 — Dashboard
 

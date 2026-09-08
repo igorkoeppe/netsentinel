@@ -8,8 +8,14 @@ from typing import cast
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
-from app.detection.alerts import SecurityAlert
+from app.detection.alerts import (
+    AlertLifecycle,
+    AlertStatus,
+    SecurityAlert,
+    Severity,
+)
 from app.models.security_alert import SecurityAlertRecord
 
 logger = logging.getLogger(__name__)
@@ -69,17 +75,22 @@ class AlertRepository:
             severity=str(alert.severity),
             message=alert.message,
             port=alert.port,
+            status=str(alert.status),
+            acknowledged_at=alert.acknowledged_at,
+            resolved_at=alert.resolved_at,
             created_at=alert.timestamp,
         )
         self._session.add(record)
         await self._session.flush()
         await self._session.refresh(record)
         logger.debug(
-            "SecurityAlertRecord created: id=%s host_id=%s severity=%r alert_type=%r",
+            "SecurityAlertRecord created: id=%s host_id=%s severity=%r "
+            "alert_type=%r status=%r",
             record.id,
             host_id,
             record.severity,
             record.alert_type,
+            record.status,
         )
         return record
 
@@ -119,6 +130,9 @@ class AlertRepository:
                 severity=str(alert.severity),
                 message=alert.message,
                 port=alert.port,
+                status=str(alert.status),
+                acknowledged_at=alert.acknowledged_at,
+                resolved_at=alert.resolved_at,
                 created_at=alert.timestamp,
             )
             for alert, event_id in alerts
@@ -131,6 +145,43 @@ class AlertRepository:
             len(records),
         )
         return records
+
+    async def update_lifecycle(
+        self,
+        alert_id: int,
+        lifecycle: AlertLifecycle,
+    ) -> SecurityAlertRecord | None:
+        """Update the triage lifecycle state of an existing security alert.
+
+        Parameters
+        ----------
+        alert_id:
+            Primary key of the alert record to update.
+        lifecycle:
+            The validated domain :class:`~app.detection.alerts.AlertLifecycle`
+            containing the new status and timestamps.
+
+        Returns
+        -------
+        SecurityAlertRecord | None
+            The updated record, or ``None`` if no record with ``alert_id`` exists.
+        """
+        record = await self._session.get(SecurityAlertRecord, alert_id)
+        if record is None:
+            return None
+
+        record.status = str(lifecycle.status)
+        record.acknowledged_at = lifecycle.acknowledged_at
+        record.resolved_at = lifecycle.resolved_at
+
+        await self._session.flush()
+        await self._session.refresh(record)
+        logger.debug(
+            "SecurityAlertRecord lifecycle updated: id=%s status=%s",
+            alert_id,
+            record.status,
+        )
+        return record
 
     # ------------------------------------------------------------------
     # Read operations
@@ -147,15 +198,9 @@ class AlertRepository:
         self,
         host_id: int,
         *,
-        limit: int | None = None,
+        limit: int = 50,
     ) -> list[SecurityAlertRecord]:
-        """Return all alerts for a host, ordered most-recent first.
-
-        Ordering: ``created_at DESC, id DESC``.
-        """
-        if limit is not None and limit <= 0:
-            raise ValueError(f"limit must be a positive integer, got {limit!r}")
-
+        """Return alerts for a given host, ordered newest first."""
         stmt = (
             select(SecurityAlertRecord)
             .where(SecurityAlertRecord.host_id == host_id)
@@ -163,10 +208,8 @@ class AlertRepository:
                 SecurityAlertRecord.created_at.desc(),
                 SecurityAlertRecord.id.desc(),
             )
+            .limit(limit)
         )
-        if limit is not None:
-            stmt = stmt.limit(limit)
-
         result = await self._session.execute(stmt)
         return list(result.scalars().all())
 
@@ -202,3 +245,54 @@ class AlertRepository:
             if row[0] is not None:
                 counts[row[0]] = row[1]
         return counts
+
+    async def list_recent(
+        self,
+        *,
+        limit: int = 20,
+        status: AlertStatus | None = None,
+        severity: Severity | None = None,
+    ) -> list[SecurityAlertRecord]:
+        """Return the most recent alerts globally, ordered created_at DESC, id DESC.
+
+        The associated ``Host`` is eagerly loaded via ``joinedload`` to avoid N+1
+        queries.
+
+        Parameters
+        ----------
+        limit:
+            Maximum number of alerts to return. Must be a positive integer.
+        status:
+            Optional lifecycle status filter.
+        severity:
+            Optional severity level filter.
+
+        Returns
+        -------
+        list[SecurityAlertRecord]
+            The alerts ordered newest first matching the specified filters.
+        """
+        if limit <= 0:
+            raise ValueError(f"limit must be a positive integer, got {limit!r}")
+        if status is not None and not isinstance(status, AlertStatus):
+            raise TypeError(
+                f"status must be an AlertStatus, got {type(status).__name__}"
+            )
+        if severity is not None and not isinstance(severity, Severity):
+            raise TypeError(
+                f"severity must be a Severity, got {type(severity).__name__}"
+            )
+
+        stmt = select(SecurityAlertRecord).options(joinedload(SecurityAlertRecord.host))
+        if status is not None:
+            stmt = stmt.where(SecurityAlertRecord.status == status.value)
+        if severity is not None:
+            stmt = stmt.where(SecurityAlertRecord.severity == severity.value)
+
+        stmt = stmt.order_by(
+            SecurityAlertRecord.created_at.desc(),
+            SecurityAlertRecord.id.desc(),
+        ).limit(limit)
+
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())

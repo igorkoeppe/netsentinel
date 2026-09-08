@@ -9,6 +9,7 @@ from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+from app.detection.alerts import AlertLifecycle, AlertStatus
 
 if TYPE_CHECKING:
     from app.models.host import Host
@@ -23,6 +24,11 @@ class SecurityAlertRecord(Base):
     and ``Severity`` enums (e.g., "new_open_port", "high").
 
     ``port`` may be None for host-level alerts.
+
+    Lifecycle fields:
+    - ``status``: "OPEN", "ACKNOWLEDGED", or "RESOLVED".
+    - ``acknowledged_at``: timestamp when the alert was acknowledged.
+    - ``resolved_at``: timestamp when the alert was resolved.
     """
 
     __tablename__ = "security_alerts"
@@ -41,6 +47,21 @@ class SecurityAlertRecord(Base):
     severity: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     message: Mapped[str] = mapped_column(Text, nullable=False)
     port: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    status: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        default="OPEN",
+        server_default="OPEN",
+        index=True,
+    )
+    acknowledged_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    resolved_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -64,8 +85,22 @@ class SecurityAlertRecord(Base):
         lazy="select",
     )
 
+    @property
+    def status_enum(self) -> AlertStatus:
+        """Return the status as an AlertStatus enum member."""
+        return AlertStatus(self.status)
+
+    def to_lifecycle(self) -> AlertLifecycle:
+        """Convert persisted lifecycle state into an AlertLifecycle domain object."""
+        return AlertLifecycle(
+            status=self.status_enum,
+            acknowledged_at=self.acknowledged_at,
+            resolved_at=self.resolved_at,
+        )
+
     def __repr__(self) -> str:
         return (
             f"<SecurityAlertRecord id={self.id} host_id={self.host_id} "
-            f"alert_type={self.alert_type!r} severity={self.severity!r}>"
+            f"alert_type={self.alert_type!r} severity={self.severity!r} "
+            f"status={self.status!r}>"
         )

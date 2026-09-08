@@ -1,6 +1,41 @@
 # Changelog
 
-## [0.4.0] - Unreleased
+## [0.5.0] - 2026-09-08
+
+
+### Added
+- Security alert lifecycle domain model (`AlertStatus`, `AlertLifecycle`, transition methods, immutability, and chronological timestamp validation).
+- Domain transition helpers: `acknowledge_alert`, `resolve_alert`, `reopen_alert`, `unacknowledge_alert`.
+- PostgreSQL persistence for alert lifecycle:
+  - Alembic migration `0003_alert_lifecycle` adding `status` (VARCHAR(50) NOT NULL default 'OPEN', indexed), `acknowledged_at` (TIMESTAMPTZ NULL), and `resolved_at` (TIMESTAMPTZ NULL) to `security_alerts`.
+  - Backfill of pre-existing `security_alerts` records to `OPEN` status with zero data loss.
+  - Updated `SecurityAlertRecord` ORM model with lifecycle columns, `status_enum`, and `to_lifecycle()` converter.
+  - `AlertRepository` lifecycle integration (`create` and `create_many` persisting status and lifecycle timestamps).
+  - `AlertRepository.update_lifecycle(alert_id, lifecycle)` to update status and timestamps in-session without committing transactions.
+  - PostgreSQL integration tests validating alert lifecycle persistence, updates, rollbacks, and reads.
+- Application service `AlertTriageService` orchestrating triage operations on persisted security alerts:
+  - Reading persisted alerts and reconstructing `AlertLifecycle` domain objects.
+  - Triage operations: `acknowledge` and `resolve` with validation of transition legality and chronological timestamp constraints.
+  - Transaction management with explicit `commit` on success and `rollback` on errors.
+  - Application exceptions `AlertTriageError` and `AlertNotFoundError`.
+  - Comprehensive unit test suite with mock session/repository and PostgreSQL integration tests.
+- Read-only security alert queue through `netsentinel alerts`:
+  - `AlertQueryService` and `AlertListItem` DTO providing decoupled read-only alert access.
+  - `AlertRepository.list_recent` with eager-loaded host relationships (`joinedload`) to eliminate N+1 queries.
+  - Deterministic ordering (`created_at DESC, id DESC`) and configurable limit (`--limit`, default 20).
+  - CLI command `netsentinel alerts` displaying tabular alert queue with status, severity, target, port, and creation timestamps.
+- CLI alert acknowledgement and resolution through the persistent triage service:
+  - Added `netsentinel alerts acknowledge <ALERT_ID>` and `netsentinel alerts resolve <ALERT_ID>` subcommands.
+  - Delegated lifecycle mutations exclusively to `AlertTriageService` with timezone-aware UTC timestamps.
+  - Clear, user-friendly error formatting for nonexistent alerts (`AlertNotFoundError`) and illegal transitions (`InvalidAlertTransitionError`).
+  - Preserved full backwards compatibility for read-only alert listing via `netsentinel alerts` and `--limit`.
+- Read-only alert queue filtering by lifecycle status and severity:
+  - Added `--status` and `--severity` CLI options with case-insensitive normalization.
+  - Pushed down `status` and `severity` filter predicates to the PostgreSQL SQL query (`.where()`) in `AlertRepository.list_recent`.
+  - Combined filters with boolean `AND` logic while preserving deterministic ordering (`created_at DESC, id DESC`), pagination (`--limit`), and eager loading against N+1 queries.
+  - Friendly CLI error formatting for invalid enum choices without calling query services or database sessions.
+
+## [0.4.0] - 2026-09-04
 
 ### Added
 - Security alert domain model (`SecurityAlert`, `AlertType`, `Severity`).

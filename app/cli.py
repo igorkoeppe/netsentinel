@@ -1,5 +1,7 @@
 """Command Line Interface for NetSentinel."""
 
+from __future__ import annotations
+
 import argparse
 import asyncio
 import sys
@@ -8,7 +10,7 @@ from collections import Counter
 from typing import TYPE_CHECKING
 
 from app.core.config import settings
-from app.detection.alerts import SecurityAlert, Severity
+from app.detection.alerts import AlertStatus, SecurityAlert, Severity
 from app.detection.engine import MonitoringEvent, MonitoringEventType, detect_changes
 from app.detection.rules import generate_alerts
 from app.monitoring.availability import HostAvailabilityResult, check_host_availability
@@ -18,6 +20,9 @@ from app.services.history import HostHistoryResult, ScanDetailsResult
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine
+
+    from app.models.security_alert import SecurityAlertRecord
+    from app.services.alert_query import AlertListItem
 
 
 def parse_ports(ports_str: str) -> list[int]:
@@ -72,6 +77,43 @@ def parse_limit(val: str) -> int:
     if limit <= 0:
         raise argparse.ArgumentTypeError("Limit must be strictly positive.")
     return limit
+
+
+def parse_alert_id(val: str) -> int:
+    """Parse and validate an alert ID argument."""
+    try:
+        alert_id = int(val)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"Invalid alert ID: '{val}'. Must be an integer."
+        ) from None
+    if alert_id <= 0:
+        raise argparse.ArgumentTypeError("Alert ID must be strictly positive.")
+    return alert_id
+
+
+def parse_alert_status(val: str) -> AlertStatus:
+    """Parse and validate an alert status CLI argument."""
+    normalized = val.strip().upper()
+    try:
+        return AlertStatus(normalized)
+    except ValueError:
+        valid_choices = ", ".join(s.value for s in AlertStatus)
+        raise argparse.ArgumentTypeError(
+            f"Invalid status '{val}'. Valid choices are: {valid_choices}."
+        ) from None
+
+
+def parse_alert_severity(val: str) -> Severity:
+    """Parse and validate an alert severity CLI argument."""
+    normalized = val.strip().lower()
+    try:
+        return Severity(normalized)
+    except ValueError:
+        valid_choices = ", ".join(s.name for s in Severity)
+        raise argparse.ArgumentTypeError(
+            f"Invalid severity '{val}'. Valid choices are: {valid_choices}."
+        ) from None
 
 
 def format_results(result: HostAvailabilityResult) -> None:
@@ -250,6 +292,48 @@ def format_scan_details(details: ScanDetailsResult) -> None:
                 print(f"Port: {a.port}")
             print(a.message)
             print(f"Timestamp: {a.created_at.strftime('%Y-%m-%d %H:%M:%S')}\n")
+
+
+def format_alerts_table(alerts: list[AlertListItem]) -> None:
+    """Format and print the security alerts table."""
+    print("\nNetSentinel Security Alerts\n")
+    if not alerts:
+        print("No security alerts found.\n")
+        return
+
+    print(
+        f"{'ID':<6} {'SEVERITY':<10} {'TYPE':<22} {'STATUS':<14} "
+        f"{'TARGET':<16} {'PORT':<8} {'CREATED'}"
+    )
+    for alert in alerts:
+        port_str = str(alert.port) if alert.port is not None else "-"
+        created_str = alert.created_at.strftime("%Y-%m-%d %H:%M:%S")
+        print(
+            f"{alert.id:<6} {alert.severity.upper():<10} "
+            f"{alert.alert_type.upper():<22} {alert.status.upper():<14} "
+            f"{alert.target:<16} {port_str:<8} {created_str}"
+        )
+    print()
+
+
+def format_acknowledge_success(record: SecurityAlertRecord) -> None:
+    """Format and print acknowledge success confirmation."""
+    print(f"\nAlert {record.id} acknowledged.\n")
+    print(f"Status: {record.status.upper()}")
+    if record.acknowledged_at is not None:
+        print(f"Acknowledged at: {record.acknowledged_at}")
+    print()
+
+
+def format_resolve_success(record: SecurityAlertRecord) -> None:
+    """Format and print resolve success confirmation."""
+    print(f"\nAlert {record.id} resolved.\n")
+    print(f"Status: {record.status.upper()}")
+    if record.acknowledged_at is not None:
+        print(f"Acknowledged at: {record.acknowledged_at}")
+    if record.resolved_at is not None:
+        print(f"Resolved at: {record.resolved_at}")
+    print()
 
 
 def format_session_summary(
@@ -446,6 +530,146 @@ async def run_history(target_str: str | None, scan_id: int | None, limit: int) -
             await engine.dispose()
 
 
+async def run_alerts(
+    limit: int = 20,
+    status: AlertStatus | None = None,
+    severity: Severity | None = None,
+) -> int:
+    """Execute the security alerts query."""
+    if not settings.DATABASE_URL:
+        print("error: DATABASE_URL is required for alert queries", file=sys.stderr)
+        return 1
+
+    from sqlalchemy.exc import OperationalError
+
+    from app.db.session import get_db_session, get_engine
+    from app.services.alert_query import AlertQueryService
+
+    engine: AsyncEngine | None = None
+
+    try:
+        engine = get_engine()
+        async with get_db_session() as session:
+            svc = AlertQueryService(session)
+            alerts = await svc.list_alerts(
+                limit=limit,
+                status=status,
+                severity=severity,
+            )
+
+            if not alerts:
+                print("\nNo security alerts found.\n")
+                return 0
+
+            format_alerts_table(alerts)
+            return 0
+    except OperationalError:
+        print("error: could not connect to PostgreSQL database", file=sys.stderr)
+        return 1
+    except Exception as e:
+        print(f"error: unexpected failure: {e}", file=sys.stderr)
+        return 1
+    finally:
+        if engine is not None:
+            await engine.dispose()
+
+
+async def run_acknowledge_alert(alert_id: int) -> int:
+    """Execute the acknowledge alert triage action."""
+    if not settings.DATABASE_URL:
+        print("error: DATABASE_URL is required for alert operations", file=sys.stderr)
+        return 1
+
+    from datetime import UTC, datetime
+
+    from sqlalchemy.exc import OperationalError
+
+    from app.db.session import get_db_session, get_engine
+    from app.detection.alerts import InvalidAlertTransitionError
+    from app.services.alert_triage import AlertNotFoundError, AlertTriageService
+
+    engine: AsyncEngine | None = None
+    now = datetime.now(UTC)
+
+    try:
+        engine = get_engine()
+        async with get_db_session() as session:
+            svc = AlertTriageService(session)
+            record = await svc.acknowledge(alert_id, at=now)
+            format_acknowledge_success(record)
+            return 0
+    except AlertNotFoundError:
+        print(f"Alert {alert_id} not found.", file=sys.stderr)
+        return 1
+    except InvalidAlertTransitionError as e:
+        if e.current_status == e.target_status:
+            msg = f"Alert {alert_id} is already in {e.current_status.value} status."
+        else:
+            msg = (
+                f"Cannot transition alert {alert_id} from "
+                f"{e.current_status.value} to {e.target_status.value}."
+            )
+        print(f"error: {msg}", file=sys.stderr)
+        return 1
+    except OperationalError:
+        print("error: could not connect to PostgreSQL database", file=sys.stderr)
+        return 1
+    except Exception as e:
+        print(f"error: unexpected failure: {e}", file=sys.stderr)
+        return 1
+    finally:
+        if engine is not None:
+            await engine.dispose()
+
+
+async def run_resolve_alert(alert_id: int) -> int:
+    """Execute the resolve alert triage action."""
+    if not settings.DATABASE_URL:
+        print("error: DATABASE_URL is required for alert operations", file=sys.stderr)
+        return 1
+
+    from datetime import UTC, datetime
+
+    from sqlalchemy.exc import OperationalError
+
+    from app.db.session import get_db_session, get_engine
+    from app.detection.alerts import InvalidAlertTransitionError
+    from app.services.alert_triage import AlertNotFoundError, AlertTriageService
+
+    engine: AsyncEngine | None = None
+    now = datetime.now(UTC)
+
+    try:
+        engine = get_engine()
+        async with get_db_session() as session:
+            svc = AlertTriageService(session)
+            record = await svc.resolve(alert_id, at=now)
+            format_resolve_success(record)
+            return 0
+    except AlertNotFoundError:
+        print(f"Alert {alert_id} not found.", file=sys.stderr)
+        return 1
+    except InvalidAlertTransitionError as e:
+        if e.current_status == e.target_status:
+            msg = f"Alert {alert_id} is already in {e.current_status.value} status."
+        else:
+            msg = (
+                f"Cannot transition alert {alert_id} from "
+                f"{e.current_status.value} to {e.target_status.value}."
+            )
+        print(f"error: {msg}", file=sys.stderr)
+        return 1
+    except OperationalError:
+        print("error: could not connect to PostgreSQL database", file=sys.stderr)
+        return 1
+    except Exception as e:
+        print(f"error: unexpected failure: {e}", file=sys.stderr)
+        return 1
+    finally:
+        if engine is not None:
+            await engine.dispose()
+
+
 def main() -> int:
     """CLI entry point."""
     parser = argparse.ArgumentParser(
@@ -519,6 +743,48 @@ def main() -> int:
         help="Maximum number of scans to show (default: 10)",
     )
 
+    alerts_parser = subparsers.add_parser(
+        "alerts", help="View and triage security alerts"
+    )
+    alerts_parser.add_argument(
+        "--limit",
+        type=parse_limit,
+        default=20,
+        help="Maximum number of alerts to show (default: 20)",
+    )
+    alerts_parser.add_argument(
+        "--status",
+        type=parse_alert_status,
+        default=None,
+        help="Filter alerts by lifecycle status (OPEN, ACKNOWLEDGED, RESOLVED)",
+    )
+    alerts_parser.add_argument(
+        "--severity",
+        type=parse_alert_severity,
+        default=None,
+        help="Filter alerts by severity (INFO, LOW, MEDIUM, HIGH, CRITICAL)",
+    )
+
+    alerts_subparsers = alerts_parser.add_subparsers(dest="action")
+
+    ack_parser = alerts_subparsers.add_parser(
+        "acknowledge", help="Acknowledge a security alert"
+    )
+    ack_parser.add_argument(
+        "alert_id",
+        type=parse_alert_id,
+        help="Primary key of the alert to acknowledge",
+    )
+
+    res_parser = alerts_subparsers.add_parser(
+        "resolve", help="Resolve a security alert"
+    )
+    res_parser.add_argument(
+        "alert_id",
+        type=parse_alert_id,
+        help="Primary key of the alert to resolve",
+    )
+
     args = parser.parse_args()
 
     if args.command == "scan":
@@ -535,6 +801,19 @@ def main() -> int:
             return 0
     elif args.command == "history":
         return asyncio.run(run_history(args.target, args.scan, args.limit))
+    elif args.command == "alerts":
+        if args.action == "acknowledge":
+            return asyncio.run(run_acknowledge_alert(args.alert_id))
+        elif args.action == "resolve":
+            return asyncio.run(run_resolve_alert(args.alert_id))
+        else:
+            return asyncio.run(
+                run_alerts(
+                    limit=args.limit,
+                    status=args.status,
+                    severity=args.severity,
+                )
+            )
 
     return 2
 

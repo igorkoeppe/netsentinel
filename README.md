@@ -123,6 +123,86 @@ Para inspecionar um scan específico e visualizar as informações de portas tes
 netsentinel history --scan 42
 ```
 
+### Security Alerts & Triage (v0.5.0)
+
+Você pode visualizar a fila de alertas de segurança persistidos através do comando `alerts`:
+
+```bash
+netsentinel alerts
+```
+
+Por padrão, os 20 alertas mais recentes são exibidos. Você pode modificar esse limite utilizando a flag `--limit`:
+
+```bash
+netsentinel alerts --limit 50
+```
+
+**Saída Aproximada:**
+```text
+NetSentinel Security Alerts
+
+ID     SEVERITY   TYPE                   STATUS         TARGET           PORT     CREATED
+42     HIGH       UNEXPECTED_OPEN_PORT   OPEN           127.0.0.1        8080     2026-09-08 15:30:00
+41     LOW        PORT_CLOSED            ACKNOWLEDGED   127.0.0.1        22       2026-09-08 15:20:00
+40     MEDIUM     HOST_DOWN              RESOLVED       127.0.0.1        -        2026-09-08 15:00:00
+```
+
+#### Filtros de Consulta (`--status` e `--severity`)
+
+A listagem de alertas suporta filtros opcionais combinados via lógica `AND`, aplicados diretamente na consulta do PostgreSQL (sem carregamento desnecessário na memória):
+
+```bash
+# Filtrar apenas alertas abertos
+netsentinel alerts --status OPEN
+
+# Filtrar por severidade alta
+netsentinel alerts --severity HIGH
+
+# Combinar filtros de status e severidade
+netsentinel alerts --status OPEN --severity HIGH
+
+# Combinar filtros com limite customizado de paginação
+netsentinel alerts --status OPEN --severity HIGH --limit 10
+```
+
+**Valores válidos para `--status`:**
+- `OPEN`
+- `ACKNOWLEDGED`
+- `RESOLVED`
+
+*(A entrada é case-insensitive, aceitando por exemplo `open`, `Open` ou `OPEN`).*
+
+**Valores válidos para `--severity`:**
+- `INFO`
+- `LOW`
+- `MEDIUM`
+- `HIGH`
+- `CRITICAL`
+
+*(A entrada é case-insensitive, aceitando por exemplo `high`, `High` ou `HIGH`).*
+
+#### Ações de Triagem na CLI
+
+Alertas de segurança suportam transições explícitas de estado através dos subcomandos `acknowledge` e `resolve`:
+
+1. **Reconhecer um alerta (`OPEN -> ACKNOWLEDGED`):**
+   ```bash
+   netsentinel alerts acknowledge 42
+   ```
+
+2. **Resolver um alerta reconhecido (`ACKNOWLEDGED -> RESOLVED`):**
+   ```bash
+   netsentinel alerts resolve 42
+   ```
+
+3. **Resolver diretamente um alerta aberto (`OPEN -> RESOLVED`):**
+   ```bash
+   netsentinel alerts resolve 42
+   ```
+
+> **Nota:** Transições inválidas (como tentar reconhecer um alerta já resolvido ou repetir um reconhecimento) são rejeitadas com mensagem explicativa. Reabertura (`RESOLVED -> OPEN`) ainda não é suportada nesta etapa.
+
+
 O projeto possui dois modos principais de execução. O primeiro é o `scan` sob demanda:
 
 ```bash
@@ -291,12 +371,13 @@ Não use `docker compose down -v` para aplicar esta correção: isso apaga o vol
 
 Esses passos são manuais e não são executados pela aplicação nem pelos testes unitários.
 
-## Limitações atuais (v0.4.0)
+## Limitações atuais (v0.5.0)
 
-A v0.4.0 ainda NÃO possui:
+A v0.5.0 ainda NÃO possui:
 - Sistema de notificações externas (email, Slack, Webhooks, etc.);
-- Reconhecimento (acknowledgement) ou supressão/agrupamento temporal de alertas;
+- Supressão ou agrupamento temporal automático de alertas;
 - Dashboard web ou interface frontend;
+- Reabertura (reopen) ou atribuição de analistas via CLI;
 - Suporte a ICMP ping nativo ou probes UDP;
 - Autodiscovery de redes ou varredura de sub-redes inteiras;
 - Detecção de versões de serviço (service/OS fingerprinting);
@@ -330,6 +411,8 @@ TEST_DATABASE_URL=postgresql+asyncpg://netsentinel:<senha-admin-url-encoded>@127
 ## Roadmap
  
 A **v0.4.0** consolidou o motor de alertas de segurança (`Alert Engine`), regras de detecção de mudanças de porta e host, severidades configuráveis, política de baseline com `EXPECTED_TCP_PORTS` e persistência integrada ao histórico.
+
+A **v0.5.0** introduz o ciclo de vida e triagem de alertas (`AlertStatus`, `AlertLifecycle`, persistência de status e timestamps no PostgreSQL, `AlertTriageService`, fila de alertas na CLI com subcomandos `acknowledge` e `resolve`, e filtros `--status` e `--severity`).
  
 Versões futuras explorarão API REST com FastAPI, descoberta avançada de serviços e dashboard web para visualização gráfica. 
 
