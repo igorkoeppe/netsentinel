@@ -33,6 +33,7 @@ class TestMetadata:
         "port_results",
         "monitoring_events",
         "security_alerts",
+        "notification_deliveries",
     }
 
     def test_all_tables_registered(self) -> None:
@@ -192,6 +193,45 @@ class TestMonitoringEventConstraints:
         assert not col.nullable, "monitoring_events.event_type must be NOT NULL"
 
 
+class TestNotificationDeliveryConstraints:
+    def _table(self) -> object:
+        return Base.metadata.tables["notification_deliveries"]
+
+    def test_alert_id_fk_points_to_security_alerts(self) -> None:
+        table = Base.metadata.tables["notification_deliveries"]
+        fks = list(table.c["alert_id"].foreign_keys)
+        assert len(fks) == 1
+        assert fks[0].target_fullname == "security_alerts.id"
+
+    def test_alert_id_not_nullable(self) -> None:
+        table = Base.metadata.tables["notification_deliveries"]
+        assert not table.c["alert_id"].nullable
+
+    def test_channel_not_nullable(self) -> None:
+        table = Base.metadata.tables["notification_deliveries"]
+        assert not table.c["channel"].nullable
+
+    def test_notification_id_not_nullable(self) -> None:
+        table = Base.metadata.tables["notification_deliveries"]
+        assert not table.c["notification_id"].nullable
+
+    def test_success_not_nullable(self) -> None:
+        table = Base.metadata.tables["notification_deliveries"]
+        assert not table.c["success"].nullable
+
+    def test_delivered_at_nullable(self) -> None:
+        table = Base.metadata.tables["notification_deliveries"]
+        assert table.c["delivered_at"].nullable
+
+    def test_error_message_nullable(self) -> None:
+        table = Base.metadata.tables["notification_deliveries"]
+        assert table.c["error_message"].nullable
+
+    def test_created_at_not_nullable(self) -> None:
+        table = Base.metadata.tables["notification_deliveries"]
+        assert not table.c["created_at"].nullable
+
+
 # ---------------------------------------------------------------------------
 # Test 3 — Enums: domain enum values are compatible with stored strings.
 # ---------------------------------------------------------------------------
@@ -271,7 +311,7 @@ class TestDatabaseUrlConfiguration:
             importlib.reload(config_module)
             from app.core.config import Settings
 
-            fresh_settings = Settings()
+            fresh_settings = Settings(_env_file=None)
             assert fresh_settings.DATABASE_URL == ""
         finally:
             if original is not None:
@@ -359,6 +399,7 @@ class TestSessionImportDoesNotConnect:
 
             importlib.reload(config_module)
             importlib.reload(session_module)
+            config_module.settings.DATABASE_URL = ""
 
             with pytest.raises(RuntimeError, match="DATABASE_URL"):
                 session_module.get_engine()

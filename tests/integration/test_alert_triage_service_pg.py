@@ -127,8 +127,9 @@ class TestAlertTriageServicePG:
         assert updated.resolved_at is None
 
         # Verify persistence across a fresh session read
+        created_id = created.id
         pg_session.expire_all()
-        refetched = await alert_repo.get_by_id(created.id)
+        refetched = await alert_repo.get_by_id(created_id)
         assert refetched is not None
         assert refetched.status == "ACKNOWLEDGED"
         assert refetched.acknowledged_at == ack_time
@@ -162,8 +163,9 @@ class TestAlertTriageServicePG:
         assert resolved.acknowledged_at == ack_time
         assert resolved.resolved_at == res_time
 
+        created_id = created.id
         pg_session.expire_all()
-        refetched = await alert_repo.get_by_id(created.id)
+        refetched = await alert_repo.get_by_id(created_id)
         assert refetched is not None
         assert refetched.status == "RESOLVED"
         assert refetched.acknowledged_at == ack_time
@@ -194,8 +196,9 @@ class TestAlertTriageServicePG:
         assert resolved.acknowledged_at is None
         assert resolved.resolved_at == res_time
 
+        created_id = created.id
         pg_session.expire_all()
-        refetched = await alert_repo.get_by_id(created.id)
+        refetched = await alert_repo.get_by_id(created_id)
         assert refetched is not None
         assert refetched.status == "RESOLVED"
         assert refetched.acknowledged_at is None
@@ -225,8 +228,9 @@ class TestAlertTriageServicePG:
         with pytest.raises(InvalidAlertStateTransitionError):
             await triage_service.acknowledge(created.id)
 
+        created_id = created.id
         pg_session.expire_all()
-        refetched = await alert_repo.get_by_id(created.id)
+        refetched = await alert_repo.get_by_id(created_id)
         assert refetched is not None
         assert refetched.status == "RESOLVED"
 
@@ -254,8 +258,9 @@ class TestAlertTriageServicePG:
         with pytest.raises(InvalidAlertStateTransitionError):
             await triage_service.resolve(created.id)
 
+        created_id = created.id
         pg_session.expire_all()
-        refetched = await alert_repo.get_by_id(created.id)
+        refetched = await alert_repo.get_by_id(created_id)
         assert refetched is not None
         assert refetched.status == "RESOLVED"
 

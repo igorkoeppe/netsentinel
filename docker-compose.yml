@@ -20,3 +20,5 @@ services:
 
 volumes:
   netsentinel_postgres_data:
+    name: projeto_netsentinel_netsentinel_postgres_data
+    external: true

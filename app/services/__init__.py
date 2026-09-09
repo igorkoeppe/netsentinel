@@ -17,6 +17,7 @@ from app.services.monitoring_persistence import (
     MonitoringPersistenceService,
     PersistedMonitoringCycle,
 )
+from app.services.notification_delivery import NotificationDeliveryService
 
 __all__ = [
     "AlertListItem",
@@ -25,5 +26,6 @@ __all__ = [
     "AlertTriageError",
     "AlertTriageService",
     "MonitoringPersistenceService",
+    "NotificationDeliveryService",
     "PersistedMonitoringCycle",
 ]

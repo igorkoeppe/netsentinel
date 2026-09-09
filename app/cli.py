@@ -439,15 +439,44 @@ async def run_monitor(
                 try:
                     async with get_db_session() as session:
                         svc = MonitoringPersistenceService(session)
-                        await svc.persist_cycle(
+                        persisted_cycle = await svc.persist_cycle(
                             snapshot, events_to_persist, alerts_to_persist
                         )
+
+                        webhook_sender = settings.get_webhook_sender()
+                        if webhook_sender is not None and alerts_to_persist:
+                            from app.services.notification_delivery import (
+                                NotificationDeliveryService,
+                            )
+
+                            delivery_svc = NotificationDeliveryService(
+                                session=session,
+                                policy=settings.get_notification_policy(),
+                                sender=webhook_sender,
+                            )
+                            await delivery_svc.deliver_alerts(
+                                alerts=alerts_to_persist,
+                                alert_records=persisted_cycle.alerts,
+                            )
                 except Exception as e:
                     print(
                         f"\nerror: failed to persist monitoring cycle: {e}",
                         file=sys.stderr,
                     )
                     return 1
+            else:
+                webhook_sender = settings.get_webhook_sender()
+                if webhook_sender is not None and alerts_to_persist:
+                    from app.services.notification_delivery import (
+                        NotificationDeliveryService,
+                    )
+
+                    delivery_svc = NotificationDeliveryService(
+                        session=None,
+                        policy=settings.get_notification_policy(),
+                        sender=webhook_sender,
+                    )
+                    await delivery_svc.deliver_alerts(alerts=alerts_to_persist)
 
     except (asyncio.CancelledError, KeyboardInterrupt):
         print("\nMonitoring stopped.")

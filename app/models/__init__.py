@@ -9,6 +9,7 @@ code — use this package instead to guarantee consistent metadata registration.
 
 from app.models.host import Host
 from app.models.monitoring_event import MonitoringEventRecord
+from app.models.notification_delivery import NotificationDeliveryRecord
 from app.models.port_result import PortResult
 from app.models.scan import Scan
 from app.models.security_alert import SecurityAlertRecord
@@ -16,6 +17,7 @@ from app.models.security_alert import SecurityAlertRecord
 __all__ = [
     "Host",
     "MonitoringEventRecord",
+    "NotificationDeliveryRecord",
     "PortResult",
     "Scan",
     "SecurityAlertRecord",

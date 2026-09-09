@@ -9,6 +9,8 @@ from app.detection.alerts import Severity
 
 if TYPE_CHECKING:
     from app.detection.rules import AlertPolicy
+    from app.notifications.policy import NotificationPolicy
+    from app.notifications.webhook import WebhookNotificationSender
 
 
 def _parse_severity(value: Severity | str, setting_name: str) -> Severity:
@@ -104,6 +106,13 @@ class Settings(BaseSettings):
     ALERT_SEVERITY_EXPECTED_OPEN_PORT: str = "INFO"
     ALERT_SEVERITY_UNEXPECTED_OPEN_PORT: str = "HIGH"
 
+    # Notifications policy (v0.6.0)
+    NOTIFICATION_MIN_SEVERITY: str = "HIGH"
+
+    # Webhook notification delivery (v0.6.0)
+    NOTIFICATION_WEBHOOK_URL: str = ""
+    NOTIFICATION_WEBHOOK_TIMEOUT: float = Field(default=5.0, gt=0, allow_inf_nan=False)
+
     def get_alert_policy(self) -> AlertPolicy:
         """Construct and validate the AlertPolicy from configured severity settings.
 
@@ -134,6 +143,35 @@ class Settings(BaseSettings):
                 self.ALERT_SEVERITY_UNEXPECTED_OPEN_PORT,
                 "ALERT_SEVERITY_UNEXPECTED_OPEN_PORT",
             ),
+        )
+
+    def get_notification_policy(self) -> NotificationPolicy:
+        """Construct and validate the NotificationPolicy from configured settings.
+
+        Lazy validation ensures commands are not blocked by invalid notification
+        variables until notifications are evaluated.
+        """
+        from app.notifications.policy import NotificationPolicy
+
+        return NotificationPolicy(
+            minimum_severity=_parse_severity(
+                self.NOTIFICATION_MIN_SEVERITY, "NOTIFICATION_MIN_SEVERITY"
+            )
+        )
+
+    def get_webhook_sender(self) -> WebhookNotificationSender | None:
+        """Construct WebhookNotificationSender if NOTIFICATION_WEBHOOK_URL is set.
+
+        Returns None if NOTIFICATION_WEBHOOK_URL is empty or whitespace.
+        """
+        cleaned_url = self.NOTIFICATION_WEBHOOK_URL.strip()
+        if not cleaned_url:
+            return None
+        from app.notifications.webhook import WebhookNotificationSender
+
+        return WebhookNotificationSender(
+            url=cleaned_url,
+            timeout=self.NOTIFICATION_WEBHOOK_TIMEOUT,
         )
 
 

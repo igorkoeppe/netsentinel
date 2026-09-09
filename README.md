@@ -14,6 +14,9 @@ Uma ferramenta educacional e defensiva de monitoramento e análise de conectivid
 - Histórico persistido de monitoramento e detalhes de scan (`netsentinel history`).
 - Motor de alertas de segurança (`Alert Engine`) com regras determinísticas e severidades configuráveis.
 - Política de portas TCP esperadas (`EXPECTED_TCP_PORTS`).
+- Ciclo de vida e triagem de alertas de segurança (`netsentinel alerts acknowledge/resolve`).
+- Entrega de notificações e webhooks em tempo real (`NotificationPolicy`, `WebhookNotificationSender`).
+- Auditoria e persistência de histórico de entregas de notificações no PostgreSQL (`notification_deliveries`).
 
 ## Arquitetura
 
@@ -371,12 +374,12 @@ Não use `docker compose down -v` para aplicar esta correção: isso apaga o vol
 
 Esses passos são manuais e não são executados pela aplicação nem pelos testes unitários.
 
-## Limitações atuais (v0.5.0)
+## Limitações atuais (v0.6.0)
 
-A v0.5.0 ainda NÃO possui:
-- Sistema de notificações externas (email, Slack, Webhooks, etc.);
-- Supressão ou agrupamento temporal automático de alertas;
-- Dashboard web ou interface frontend;
+A v0.6.0 ainda NÃO possui:
+- Outros canais externos além de Webhook HTTP POST (ex.: email nativo SMTP, Slack direto, Teams);
+- Supressão ou agrupamento temporal automático de alertas (alert throttling/deduplication);
+- Dashboard web ou interface frontend (planejado para versões futuras);
 - Reabertura (reopen) ou atribuição de analistas via CLI;
 - Suporte a ICMP ping nativo ou probes UDP;
 - Autodiscovery de redes ou varredura de sub-redes inteiras;
@@ -413,8 +416,30 @@ TEST_DATABASE_URL=postgresql+asyncpg://netsentinel:<senha-admin-url-encoded>@127
 A **v0.4.0** consolidou o motor de alertas de segurança (`Alert Engine`), regras de detecção de mudanças de porta e host, severidades configuráveis, política de baseline com `EXPECTED_TCP_PORTS` e persistência integrada ao histórico.
 
 A **v0.5.0** introduz o ciclo de vida e triagem de alertas (`AlertStatus`, `AlertLifecycle`, persistência de status e timestamps no PostgreSQL, `AlertTriageService`, fila de alertas na CLI com subcomandos `acknowledge` e `resolve`, e filtros `--status` e `--severity`).
- 
-Versões futuras explorarão API REST com FastAPI, descoberta avançada de serviços e dashboard web para visualização gráfica. 
+
+A **v0.6.0** introduz o subsistema completo de notificações e entrega de alertas de segurança em tempo real:
+
+- **Política de severidade configurável (`NotificationPolicy`)**: Define o threshold mínimo para geração de notificações com base na severidade do alerta (`NOTIFICATION_MIN_SEVERITY`, default `HIGH`). Valores aceitos (case-insensitive): `INFO`, `LOW`, `MEDIUM`, `HIGH`, `CRITICAL`.
+- **Provedor assíncrono Webhook (`WebhookNotificationSender`)**: Disparo de requisições HTTP POST usando `httpx.AsyncClient` com payload JSON padronizado, sanitização de caracteres ANSI/controle, validação de URL e mascaramento de parâmetros sensíveis.
+- **Auditoria e persistência relacional (`notification_deliveries`)**: Registro transacional no PostgreSQL de cada tentativa de entrega (`channel`, `success`, `status_code`, `error_message`, `delivered_at`) vinculado ao `SecurityAlertRecord` com integridade referencial `ON DELETE CASCADE`.
+- **Serviço orquestrador (`NotificationDeliveryService`)**: Unifica filtragem por política, despacho assíncrono para senders registrados e persistência atômica no banco de dados.
+- **Integração no monitoramento contínuo (`netsentinel monitor`)**:
+  - Com `--persist`: Os alertas gerados no ciclo são persistidos no PostgreSQL e, em seguida, avaliados e despachados via webhooks com gravação transacional das tentativas em `notification_deliveries`.
+  - Sem `--persist` (in-memory): O monitoramento mantém isolamento total de banco de dados e realiza a entrega via webhook em memória, caso `NOTIFICATION_WEBHOOK_URL` esteja configurada.
+
+```env
+# Política de severidade mínima (default: HIGH)
+NOTIFICATION_MIN_SEVERITY=HIGH
+
+# Endpoint HTTP POST para disparo de webhooks (desabilitado se vazio)
+NOTIFICATION_WEBHOOK_URL=https://webhook.site/seu-endpoint
+NOTIFICATION_WEBHOOK_TIMEOUT=5.0
+```
+
+Exemplo de execução com persistência e notificações:
+```bash
+netsentinel monitor 127.0.0.1 --ports 22,80,443 --persist
+``` 
 
 ## Uso responsável
 

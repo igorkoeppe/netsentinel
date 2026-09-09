@@ -426,13 +426,22 @@ Features:
 - filtros read-only na listagem de alerts (`--status` e `--severity`) combinados via SQL;
 - testes unitários e testes de integração no PostgreSQL.
 
-### v0.6 — Dashboard
+### v0.6 — Notifications & Alert Delivery (completed)
 
-- visão geral;
-- hosts online/offline;
-- alertas recentes;
-- histórico;
-- gráficos.
+- fundação do subsistema de notificações (`Notification`, `NotificationChannel`, `NotificationResult`/`DeliveryResult`, `NotificationSender`);
+- política de severidade mínima configurável (`NotificationPolicy`) baseada em threshold de severidade para decidir se um `SecurityAlert` gera notificação;
+- ordenação numérica explícita de `Severity` (`INFO` < `LOW` < `MEDIUM` < `HIGH` < `CRITICAL`);
+- integração com infraestrutura de configurações via `NOTIFICATION_MIN_SEVERITY` (default `HIGH`, case-insensitive, erro explícito em valores inválidos);
+- conversor de alto nível `notification_for_alert`;
+- provider assíncrono `WebhookNotificationSender` com HTTPX, payload JSON estável, validação de URL, timeout configurável, tratamento robusto de erros e sanitização de payloads/URLs;
+- modelo ORM `NotificationDeliveryRecord` mapeado para a tabela `notification_deliveries` com chaves estrangeiras, índices e status booleano `success`;
+- migration Alembic `0004_notification_deliveries` com chave estrangeira ON DELETE CASCADE para `security_alerts`;
+- repositório assíncrono `NotificationDeliveryRepository` com métodos para inserção individual, em lote (`create_many_from_results`), consulta por alerta, listagem recente e contagem;
+- serviço de orquestração `NotificationDeliveryService` unificando avaliação de política, despacho assíncrono via senders e persistência transacional de resultados;
+- integração completa no fluxo de monitoramento contínuo (`netsentinel monitor`):
+  - no modo `--persist`: despacho de notificações para alertas persistidos e gravação atômica dos resultados de entrega no PostgreSQL;
+  - no modo in-memory (sem `--persist`): despacho direto via webhook configurado sem depender de banco de dados ou conexão com PostgreSQL;
+- testes unitários exaustivos (repositório, serviço de entrega, integração na CLI) e testes de integração com banco PostgreSQL real.
 
 ### v0.7 — Containers
 

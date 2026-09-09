@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.6.0] - Unreleased
+
+### Added
+- External notifications and alert delivery subsystem:
+  - Domain models: `Notification`, `NotificationChannel` (WEBHOOK, EMAIL, SLACK), `DeliveryResult`, and abstract `NotificationSender`.
+  - Notification conversion helper `notification_for_alert` translating `SecurityAlert` domain objects into structured `Notification` instances.
+  - Severity-based delivery policy (`NotificationPolicy`) filtering alerts against a configurable threshold `NOTIFICATION_MIN_SEVERITY` (default `HIGH`, supporting `INFO`, `LOW`, `MEDIUM`, `HIGH`, `CRITICAL`).
+  - Asynchronous HTTP webhook notification sender (`WebhookNotificationSender`) implemented with `httpx.AsyncClient`:
+    - Stable JSON delivery payload with alert identifiers, targets, timestamps, and severity.
+    - URL scheme and format validation.
+    - Timezone-aware UTC timestamp serialization.
+    - Sanitization of ANSI escape codes and control characters.
+    - Masking of sensitive query parameters in URLs and error messages.
+    - Configurable webhook URL (`NOTIFICATION_WEBHOOK_URL`) and timeout (`NOTIFICATION_WEBHOOK_TIMEOUT`).
+  - PostgreSQL delivery auditing and persistence:
+    - Alembic migration `0004_notification_deliveries` creating table `notification_deliveries` with foreign key ON DELETE CASCADE to `security_alerts`, composite indexes, and delivery metadata (`channel`, `success`, `status_code`, `error_message`, `delivered_at`).
+    - ORM model `NotificationDeliveryRecord` mapped to `notification_deliveries` and linked via relationship `deliveries` on `SecurityAlertRecord`.
+    - Asynchronous repository `NotificationDeliveryRepository` supporting `create_from_result`, `create_many_from_results`, `get_by_id`, `list_by_alert`, `list_recent`, and `count_by_alerts`.
+  - Application orchestration service `NotificationDeliveryService`:
+    - Orchestrating policy evaluation, sender dispatch, and transactional database recording.
+    - Failure isolation preventing webhook errors or database exceptions from interrupting continuous monitoring cycles.
+  - Continuous monitoring CLI integration in `netsentinel monitor`:
+    - In persistent mode (`--persist`): alerts are persisted, evaluated by policy, dispatched to active senders, and delivery results recorded in PostgreSQL.
+    - In in-memory mode (without `--persist`): alerts are delivered via configured webhooks without any database dependency or network connection to PostgreSQL.
+    - Real-time CLI feedback for delivery successes and failures.
+  - Comprehensive unit test coverage for models, policies, webhooks, repositories, services, and CLI commands.
+  - PostgreSQL integration tests validating database schema, migrations, constraints, and delivery service workflows.
+
 ## [0.5.0] - 2026-09-08
 
 

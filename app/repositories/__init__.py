@@ -15,14 +15,16 @@ Usage::
 from app.repositories.alert import AlertRepository
 from app.repositories.host import HostAlreadyExistsError, HostRepository
 from app.repositories.monitoring_event import MonitoringEventRepository
+from app.repositories.notification_delivery import NotificationDeliveryRepository
 from app.repositories.scan import PortResultInput, ScanHostNotFoundError, ScanRepository
 
 __all__ = [
     "AlertRepository",
     "HostRepository",
     "HostAlreadyExistsError",
-    "ScanRepository",
-    "ScanHostNotFoundError",
-    "PortResultInput",
     "MonitoringEventRepository",
+    "NotificationDeliveryRepository",
+    "PortResultInput",
+    "ScanHostNotFoundError",
+    "ScanRepository",
 ]

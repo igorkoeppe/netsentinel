@@ -14,6 +14,7 @@ from app.detection.alerts import AlertLifecycle, AlertStatus
 if TYPE_CHECKING:
     from app.models.host import Host
     from app.models.monitoring_event import MonitoringEventRecord
+    from app.models.notification_delivery import NotificationDeliveryRecord
     from app.models.scan import Scan
 
 
@@ -81,6 +82,11 @@ class SecurityAlertRecord(Base):
     )
     monitoring_event: Mapped[MonitoringEventRecord | None] = relationship(
         "MonitoringEventRecord",
+        back_populates="alert",
+        lazy="select",
+    )
+    deliveries: Mapped[list[NotificationDeliveryRecord]] = relationship(
+        "NotificationDeliveryRecord",
         back_populates="alert",
         lazy="select",
     )
