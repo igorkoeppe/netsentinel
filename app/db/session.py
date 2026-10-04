@@ -80,3 +80,19 @@ async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
     factory = get_session_factory()
     async with factory() as session:
         yield session
+
+
+async def dispose_engine() -> None:
+    """Dispose the lazily-created engine (if any) and reset the singletons.
+
+    Safe to call when no engine was ever created: it never opens a connection
+    nor creates an engine. Used by the REST API lifespan at shutdown.
+    """
+    global _engine, _session_factory
+
+    engine = _engine
+    _engine = None
+    _session_factory = None
+    if engine is not None:
+        await engine.dispose()
+        logger.debug("Async database engine disposed.")

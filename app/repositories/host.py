@@ -247,8 +247,14 @@ class HostRepository:
         stmt = select(Host).where(Host.address == address)
         return cast(Host | None, await self._session.scalar(stmt))
 
-    async def list(self, *, enabled: bool | None = None) -> list[Host]:
-        """Return all hosts, ordered deterministically by ``id``.
+    async def list(
+        self,
+        *,
+        enabled: bool | None = None,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> list[Host]:
+        """Return hosts ordered deterministically by ``id`` with optional pagination.
 
         Parameters
         ----------
@@ -256,6 +262,10 @@ class HostRepository:
             When ``True``, return only active hosts.
             When ``False``, return only disabled hosts.
             When ``None`` (default), return all hosts regardless of state.
+        limit:
+            Optional maximum number of hosts to return.
+        offset:
+            Optional offset for pagination (default 0).
 
         Returns
         -------
@@ -264,5 +274,9 @@ class HostRepository:
         stmt = select(Host).order_by(Host.id)
         if enabled is not None:
             stmt = stmt.where(Host.enabled == enabled)
+        if offset > 0:
+            stmt = stmt.offset(offset)
+        if limit is not None:
+            stmt = stmt.limit(limit)
         result = await self._session.execute(stmt)
         return list(result.scalars().all())

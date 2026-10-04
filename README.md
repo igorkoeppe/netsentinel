@@ -17,33 +17,31 @@ Uma ferramenta educacional e defensiva de monitoramento e análise de conectivid
 - Ciclo de vida e triagem de alertas de segurança (`netsentinel alerts acknowledge/resolve`).
 - Entrega de notificações e webhooks em tempo real (`NotificationPolicy`, `WebhookNotificationSender`).
 - Auditoria e persistência de histórico de entregas de notificações no PostgreSQL (`notification_deliveries`).
+- API HTTP REST versionada (`/api/v1`) com FastAPI, OpenAPI interativo (`/docs`, `/redoc`), autenticação via header `X-API-Key`, triagem remota e CORS configurável.
 
 ## Arquitetura
 
 ```text
-       CLI
-        │
-        ▼
-  NetworkTarget
-        │
-        ▼
-   Port Scanner
-        │
-        ▼
-    TCP Probe
-        │
-        ▼
-     Network
-
-       ---
-
- Port Scan Results
-        │
-        ▼
-Availability Analysis
-        │
-        ▼
-AVAILABLE / UNAVAILABLE
+       ┌───────────┐         ┌───────────────────────┐
+       │    CLI    │         │  REST API (/api/v1)   │
+       └─────┬─────┘         └───────────┬───────────┘
+             │                           │
+             ▼                           ▼
+      ┌────────────────────────────────────────┐
+      │          Application Services          │
+      │ (HostQuery, History, AlertQuery, ...) │
+      └──────────────────┬─────────────────────┘
+                         │
+                         ▼
+      ┌────────────────────────────────────────┐
+      │         Repositories / Models          │
+      │   (Host, Scan, Event, Alert, Delivery) │
+      └──────────────────┬─────────────────────┘
+                         │
+                         ▼
+      ┌────────────────────────────────────────┐
+      │          PostgreSQL Database           │
+      └────────────────────────────────────────┘
 ```
 
 ## Instalação
@@ -411,6 +409,92 @@ pytest
 TEST_DATABASE_URL=postgresql+asyncpg://netsentinel:<senha-admin-url-encoded>@127.0.0.1:5432/netsentinel_test pytest -m integration
 ```
 
+## REST API
+
+O NetSentinel v0.7.0 expõe seus serviços de monitoramento, histórico e triagem através de uma API HTTP REST assíncrona versionada (`/api/v1`), sem duplicar regras de negócio da CLI.
+
+### Inicialização do Servidor
+
+Para iniciar o servidor FastAPI localmente:
+
+```bash
+uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+A documentação interativa estará acessível em:
+- Swagger UI: `http://127.0.0.1:8000/docs`
+- ReDoc: `http://127.0.0.1:8000/redoc`
+- OpenAPI JSON: `http://127.0.0.1:8000/openapi.json`
+
+### Política de Autenticação e Segurança
+
+- **Header de Autenticação**: `X-API-Key` (chaves passadas como query parameter são expressamente rejeitadas).
+- **Sem chave configurada (`API_KEY` vazia)**: Modo de desenvolvimento local. Endpoints de leitura são públicos; mutações (`acknowledge` / `resolve`) retornam `503 Service Unavailable` (`MUTATIONS_DISABLED`).
+- **Com chave configurada (`API_KEY` definida)**: Todos os endpoints (leitura e mutação) exigem o header `X-API-Key` válido. Requisições sem a chave ou com chave incorreta recebem `401 Unauthorized` com mensagem genérica (comparação constant-time via `secrets.compare_digest`).
+- **Probes de Health**: `GET /health`, `GET /api/v1/health/live` e `GET /api/v1/health/ready` são sempre públicos para orquestradores e balanceadores.
+- **CORS Estrito e Opt-in**: Desabilitado por padrão. Habilitado exclusivamente via `API_CORS_ORIGINS` com origens explícitas separadas por vírgula (ex: `http://localhost:3000,http://127.0.0.1:8080`). O uso de wildcard `*` é estritamente proibido.
+- **Sanitização de Segredos**: Credenciais, connection strings e tokens nunca são expostos em respostas de erro, schemas ou logs.
+
+### Tabela de Endpoints
+
+| Método | Endpoint | Autenticação | Descrição |
+|---|---|---|---|
+| `GET` | `/health` | Pública | Endpoint legado de health (`{"status": "ok", "service": "netsentinel"}`). |
+| `GET` | `/api/v1/health/live` | Pública | Liveness probe (indica que a aplicação está rodando; sem I/O de banco). |
+| `GET` | `/api/v1/health/ready` | Pública | Readiness probe (valida conectividade `SELECT 1` com o PostgreSQL; 503 se indisponível). |
+| `GET` | `/api/v1/hosts` | `X-API-Key` | Lista hosts monitorados com paginação (`limit`, `offset`) e filtro `enabled`. |
+| `GET` | `/api/v1/hosts/{target}/history` | `X-API-Key` | Histórico de scans do host especificado (alvo validado via `NetworkTarget`). |
+| `GET` | `/api/v1/scans/{scan_id}` | `X-API-Key` | Detalhes de um scan específico, incluindo portas sondadas, eventos e alertas gerados. |
+| `GET` | `/api/v1/alerts/summary` | `X-API-Key` | Métricas agregadas de alertas no banco via SQL (`total`, `by_status`, `by_severity`). |
+| `GET` | `/api/v1/alerts` | `X-API-Key` | Fila de alertas com paginação e filtros combinados (`status`, `severity`, `type`, `target`). |
+| `GET` | `/api/v1/alerts/{alert_id}` | `X-API-Key` | Detalhes completos de um alerta de segurança específico. |
+| `GET` | `/api/v1/alerts/{alert_id}/deliveries` | `X-API-Key` | Histórico sanitizado de tentativas de entrega de notificações para o alerta. |
+| `POST` | `/api/v1/alerts/{alert_id}/acknowledge` | `X-API-Key` | Triagem remota: transiciona o alerta para `ACKNOWLEDGED` (409 em transições inválidas). |
+| `POST` | `/api/v1/alerts/{alert_id}/resolve` | `X-API-Key` | Triagem remota: transiciona o alerta para `RESOLVED` (409 em transições inválidas). |
+
+### Exemplos com cURL
+
+**1. Verificar Liveness e Readiness:**
+```bash
+curl -s http://127.0.0.1:8000/api/v1/health/live
+curl -s http://127.0.0.1:8000/api/v1/health/ready
+```
+
+**2. Listar Hosts Monitorados:**
+```bash
+curl -s -H "X-API-Key: sua-chave-aqui" \
+  "http://127.0.0.1:8000/api/v1/hosts?limit=10&offset=0"
+```
+
+**3. Obter Histórico de um Alvo:**
+```bash
+curl -s -H "X-API-Key: sua-chave-aqui" \
+  "http://127.0.0.1:8000/api/v1/hosts/127.0.0.1/history?limit=5"
+```
+
+**4. Obter Resumo Agregado de Alertas:**
+```bash
+curl -s -H "X-API-Key: sua-chave-aqui" \
+  http://127.0.0.1:8000/api/v1/alerts/summary
+```
+
+**5. Filtrar Alertas Abertos de Alta Severidade:**
+```bash
+curl -s -H "X-API-Key: sua-chave-aqui" \
+  "http://127.0.0.1:8000/api/v1/alerts?status=OPEN&severity=HIGH&limit=20"
+```
+
+**6. Reconhecer e Resolver um Alerta Remotamente:**
+```bash
+# Reconhecer (Acknowledge)
+curl -s -X POST -H "X-API-Key: sua-chave-aqui" \
+  http://127.0.0.1:8000/api/v1/alerts/42/acknowledge
+
+# Resolver (Resolve)
+curl -s -X POST -H "X-API-Key: sua-chave-aqui" \
+  http://127.0.0.1:8000/api/v1/alerts/42/resolve
+```
+
 ## Roadmap
  
 A **v0.4.0** consolidou o motor de alertas de segurança (`Alert Engine`), regras de detecção de mudanças de porta e host, severidades configuráveis, política de baseline com `EXPECTED_TCP_PORTS` e persistência integrada ao histórico.
@@ -426,6 +510,12 @@ A **v0.6.0** introduz o subsistema completo de notificações e entrega de alert
 - **Integração no monitoramento contínuo (`netsentinel monitor`)**:
   - Com `--persist`: Os alertas gerados no ciclo são persistidos no PostgreSQL e, em seguida, avaliados e despachados via webhooks com gravação transacional das tentativas em `notification_deliveries`.
   - Sem `--persist` (in-memory): O monitoramento mantém isolamento total de banco de dados e realiza a entrega via webhook em memória, caso `NOTIFICATION_WEBHOOK_URL` esteja configurada.
+
+A **v0.7.0** introduz a API HTTP REST versionada (`/api/v1`) construída com FastAPI e Pydantic v2:
+- **Endpoints RESTful padronizados**: Probes de liveness/readiness, hosts, histórico, scans detalhados, resumo estatístico agregado de alertas (`/summary`), fila de alertas com múltiplos filtros combinados e histórico de entregas de notificações.
+- **Triagem remota de alertas**: Ações remotas de `acknowledge` e `resolve` que operam diretamente através do `AlertTriageService`, garantindo validação de transições idêntica à da CLI.
+- **Segurança**: Autenticação centralizada via header `X-API-Key`, bloqueio de mutações em ambientes locais sem chave configurada (`MUTATIONS_DISABLED`), comparação segura em tempo constante (`secrets.compare_digest`) e CORS estrito e opt-in sem suporte a wildcards.
+- **Documentação e Schema OpenAPI**: OpenAPI e Swagger UI totalmente integrados sem vazamento de segredos nos schemas gerados.
 
 ```env
 # Política de severidade mínima (default: HIGH)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.detection.alerts import Severity
@@ -70,6 +70,43 @@ def _parse_expected_tcp_ports(value: str | None) -> frozenset[int] | None:
     return frozenset(ports)
 
 
+_ALLOWED_CORS_SCHEMES = ("http://", "https://")
+
+
+def _parse_cors_origins(value: str | None) -> list[str]:
+    """Parse a comma-separated list of explicit CORS origins.
+
+    - Empty/whitespace input is valid and disables CORS (returns ``[]``).
+    - Items are trimmed, a trailing ``/`` is removed and duplicates are
+      dropped while preserving order.
+    - ``*`` is rejected: only explicit, trusted origins are allowed.
+    - No DNS resolution or network access is performed.
+    """
+    if value is None or not value.strip():
+        return []
+
+    origins: list[str] = []
+    for item in value.split(","):
+        origin = item.strip().rstrip("/")
+        if not origin:
+            continue
+        if origin == "*":
+            raise ValueError(
+                "Invalid API_CORS_ORIGINS: wildcard '*' is not allowed; "
+                "list explicit trusted origins instead."
+            )
+        if not origin.lower().startswith(_ALLOWED_CORS_SCHEMES) or any(
+            ch.isspace() for ch in origin
+        ):
+            raise ValueError(
+                "Invalid API_CORS_ORIGINS entry: origins must look like "
+                "'http://host[:port]' or 'https://host[:port]'."
+            )
+        origins.append(origin)
+
+    return list(dict.fromkeys(origins))
+
+
 class Settings(BaseSettings):
     """Application settings loaded from environment variables or .env file."""
 
@@ -112,6 +149,13 @@ class Settings(BaseSettings):
     # Webhook notification delivery (v0.6.0)
     NOTIFICATION_WEBHOOK_URL: str = ""
     NOTIFICATION_WEBHOOK_TIMEOUT: float = Field(default=5.0, gt=0, allow_inf_nan=False)
+
+    # REST API (v0.7.0)
+    # Empty API_KEY: read endpoints are open (local development) and mutation
+    # endpoints are disabled. SecretStr keeps the value out of reprs/logs.
+    API_KEY: SecretStr = SecretStr("")
+    # Comma-separated explicit origins. Empty means CORS is not enabled.
+    API_CORS_ORIGINS: str = ""
 
     def get_alert_policy(self) -> AlertPolicy:
         """Construct and validate the AlertPolicy from configured severity settings.
@@ -173,6 +217,15 @@ class Settings(BaseSettings):
             url=cleaned_url,
             timeout=self.NOTIFICATION_WEBHOOK_TIMEOUT,
         )
+
+    def get_api_key(self) -> str | None:
+        """Return the configured API key, or ``None`` when not configured."""
+        configured = self.API_KEY.get_secret_value().strip()
+        return configured or None
+
+    def get_cors_origins(self) -> list[str]:
+        """Return validated, deduplicated CORS origins (empty = disabled)."""
+        return _parse_cors_origins(self.API_CORS_ORIGINS)
 
 
 settings = Settings()

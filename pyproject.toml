@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "netsentinel"
-version = "0.6.0"
+version = "0.7.0"
 description = "NetSentinel - Network monitoring and security observability platform"
 requires-python = ">=3.12"
 dependencies = [
@@ -14,7 +14,7 @@ dependencies = [
     "pydantic-settings>=2.3.0",
     "python-dotenv>=1.0.0",
     # Persistence (v0.3)
-    "sqlalchemy>=2.0.36",
+    "sqlalchemy[asyncio]>=2.0.36",
     "asyncpg>=0.30.0",
     "alembic>=1.14.0",
     # Notifications (v0.6)
@@ -60,6 +60,8 @@ ignore = []
 # test_db_models.py uses a side-effect import (app.models) that must appear
 # in a specific position relative to app.db.base to register ORM metadata.
 "tests/unit/test_db_models.py" = ["I001"]
+# FastAPI route handlers legitimately use Depends() in parameter defaults.
+"app/api/*" = ["B008"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["app"]

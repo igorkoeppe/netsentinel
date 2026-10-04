@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
-from typing import cast
+from typing import Any, cast
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,9 +13,11 @@ from sqlalchemy.orm import joinedload
 from app.detection.alerts import (
     AlertLifecycle,
     AlertStatus,
+    AlertType,
     SecurityAlert,
     Severity,
 )
+from app.models.host import Host
 from app.models.security_alert import SecurityAlertRecord
 
 logger = logging.getLogger(__name__)
@@ -252,6 +254,9 @@ class AlertRepository:
         limit: int = 20,
         status: AlertStatus | None = None,
         severity: Severity | None = None,
+        alert_type: AlertType | None = None,
+        target: str | None = None,
+        offset: int = 0,
     ) -> list[SecurityAlertRecord]:
         """Return the most recent alerts globally, ordered created_at DESC, id DESC.
 
@@ -266,6 +271,12 @@ class AlertRepository:
             Optional lifecycle status filter.
         severity:
             Optional severity level filter.
+        alert_type:
+            Optional alert type filter.
+        target:
+            Optional target network address filter.
+        offset:
+            Optional offset for pagination (default 0).
 
         Returns
         -------
@@ -274,6 +285,8 @@ class AlertRepository:
         """
         if limit <= 0:
             raise ValueError(f"limit must be a positive integer, got {limit!r}")
+        if offset < 0:
+            raise ValueError(f"offset must be non-negative, got {offset!r}")
         if status is not None and not isinstance(status, AlertStatus):
             raise TypeError(
                 f"status must be an AlertStatus, got {type(status).__name__}"
@@ -282,17 +295,68 @@ class AlertRepository:
             raise TypeError(
                 f"severity must be a Severity, got {type(severity).__name__}"
             )
+        if alert_type is not None and not isinstance(alert_type, AlertType):
+            raise TypeError(
+                f"alert_type must be an AlertType, got {type(alert_type).__name__}"
+            )
 
         stmt = select(SecurityAlertRecord).options(joinedload(SecurityAlertRecord.host))
+        if target is not None:
+            stmt = stmt.join(SecurityAlertRecord.host).where(Host.address == target)
         if status is not None:
             stmt = stmt.where(SecurityAlertRecord.status == status.value)
         if severity is not None:
             stmt = stmt.where(SecurityAlertRecord.severity == severity.value)
+        if alert_type is not None:
+            stmt = stmt.where(SecurityAlertRecord.alert_type == alert_type.value)
 
-        stmt = stmt.order_by(
-            SecurityAlertRecord.created_at.desc(),
-            SecurityAlertRecord.id.desc(),
-        ).limit(limit)
+        stmt = (
+            stmt.order_by(
+                SecurityAlertRecord.created_at.desc(),
+                SecurityAlertRecord.id.desc(),
+            )
+            .offset(offset)
+            .limit(limit)
+        )
 
         result = await self._session.execute(stmt)
         return list(result.scalars().all())
+
+    async def get_summary(self) -> dict[str, Any]:
+        """Aggregate alert counts by status and severity using SQL GROUP BY.
+
+        Executes database aggregations without loading alert records into Python memory.
+        Returns a dictionary containing total count and complete dictionaries for all
+        known enum values (with 0 for unrepresented categories).
+        """
+        # Count total
+        total_stmt = select(func.count(SecurityAlertRecord.id))
+        total = await self._session.scalar(total_stmt) or 0
+
+        # Group by status
+        status_stmt = select(
+            SecurityAlertRecord.status,
+            func.count(SecurityAlertRecord.id),
+        ).group_by(SecurityAlertRecord.status)
+        status_rows = (await self._session.execute(status_stmt)).all()
+        by_status = {s.value: 0 for s in AlertStatus}
+        for st_val, cnt in status_rows:
+            norm_st = str(st_val).upper()
+            by_status[norm_st] = cnt
+
+        # Group by severity (standardize keys to uppercase)
+        sev_stmt = select(
+            SecurityAlertRecord.severity,
+            func.count(SecurityAlertRecord.id),
+        ).group_by(SecurityAlertRecord.severity)
+        sev_rows = (await self._session.execute(sev_stmt)).all()
+        by_severity = {s.name: 0 for s in Severity}
+        for sv_val, cnt in sev_rows:
+            norm_sv = str(sv_val).upper()
+            by_severity[norm_sv] = cnt
+
+        return {
+            "total": total,
+            "by_status": by_status,
+            "by_severity": by_severity,
+        }

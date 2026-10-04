@@ -9,9 +9,9 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from app.detection.alerts import AlertStatus, Severity
+from app.detection.alerts import AlertStatus, AlertType, Severity
 from app.repositories.alert import AlertRepository
 
 if TYPE_CHECKING:
@@ -73,6 +73,9 @@ class AlertQueryService:
         limit: int = 20,
         status: AlertStatus | None = None,
         severity: Severity | None = None,
+        alert_type: AlertType | None = None,
+        target: str | None = None,
+        offset: int = 0,
     ) -> list[AlertListItem]:
         """Fetch the most recent persisted security alerts globally.
 
@@ -84,6 +87,12 @@ class AlertQueryService:
             Optional lifecycle status filter.
         severity:
             Optional severity level filter.
+        alert_type:
+            Optional alert type classification filter.
+        target:
+            Optional target network address filter.
+        offset:
+            Optional pagination offset (default 0).
 
         Returns
         -------
@@ -93,12 +102,15 @@ class AlertQueryService:
         Raises
         ------
         ValueError
-            If ``limit <= 0``.
+            If ``limit <= 0`` or ``offset < 0``.
         TypeError
-            If ``status`` or ``severity`` have invalid types.
+            If ``status``, ``severity``, ``alert_type``, or ``target``
+            have invalid types.
         """
         if limit <= 0:
             raise ValueError(f"limit must be a positive integer, got {limit!r}")
+        if offset < 0:
+            raise ValueError(f"offset must be non-negative, got {offset!r}")
         if status is not None and not isinstance(status, AlertStatus):
             raise TypeError(
                 f"status must be an AlertStatus, got {type(status).__name__}"
@@ -107,12 +119,29 @@ class AlertQueryService:
             raise TypeError(
                 f"severity must be a Severity, got {type(severity).__name__}"
             )
+        if alert_type is not None and not isinstance(alert_type, AlertType):
+            raise TypeError(
+                f"alert_type must be an AlertType, got {type(alert_type).__name__}"
+            )
+        if target is not None and not isinstance(target, str):
+            raise TypeError(f"target must be a str, got {type(target).__name__}")
 
-        records = await self._alert_repo.list_recent(
-            limit=limit,
-            status=status,
-            severity=severity,
-        )
+        if alert_type is None and target is None and offset == 0:
+            records = await self._alert_repo.list_recent(
+                limit=limit,
+                status=status,
+                severity=severity,
+            )
+        else:
+            records = await self._alert_repo.list_recent(
+                limit=limit,
+                status=status,
+                severity=severity,
+                alert_type=alert_type,
+                target=target,
+                offset=offset,
+            )
+
         return [
             AlertListItem(
                 id=rec.id,
@@ -127,6 +156,10 @@ class AlertQueryService:
             )
             for rec in records
         ]
+
+    async def get_summary(self) -> dict[str, Any]:
+        """Aggregate counts of persisted alerts by status and severity."""
+        return await self._alert_repo.get_summary()
 
     async def get_alert(self, alert_id: int) -> AlertListItem | None:
         """Fetch a single security alert by its ID.

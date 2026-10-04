@@ -6,7 +6,9 @@ These tests require ``TEST_DATABASE_URL`` to be set and are tagged with the
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from sqlalchemy import text
@@ -59,13 +61,23 @@ async def cleanup_db(pg_session: AsyncSession) -> None:
 
 
 @pytest.fixture(autouse=True)
-def set_database_url(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Ensure DATABASE_URL is set to TEST_DATABASE_URL for CLI runner functions."""
+def set_database_url(monkeypatch: pytest.MonkeyPatch, pg_session: AsyncSession) -> None:
+    """Ensure DATABASE_URL is set and CLI functions share test session."""
     import os
 
     test_url = os.environ.get("TEST_DATABASE_URL", "")
     if test_url:
         monkeypatch.setattr(settings, "DATABASE_URL", test_url)
+
+    @asynccontextmanager
+    async def _mock_get_db_session():
+        yield pg_session
+
+    mock_engine = MagicMock()
+    mock_engine.dispose = AsyncMock()
+
+    monkeypatch.setattr("app.db.session.get_db_session", _mock_get_db_session)
+    monkeypatch.setattr("app.db.session.get_engine", lambda: mock_engine)
 
 
 class TestCliAlertsTriagePG:
@@ -94,8 +106,9 @@ class TestCliAlertsTriagePG:
         assert "Status: ACKNOWLEDGED" in captured.out
 
         # Verify DB persistence
+        created_id = created.id
         pg_session.expire_all()
-        refetched = await alert_repo.get_by_id(created.id)
+        refetched = await alert_repo.get_by_id(created_id)
         assert refetched is not None
         assert refetched.status == "ACKNOWLEDGED"
         assert refetched.status_enum == AlertStatus.ACKNOWLEDGED
@@ -133,8 +146,9 @@ class TestCliAlertsTriagePG:
         assert "Resolved at:" in captured.out
 
         # Verify DB persistence
+        created_id = created.id
         pg_session.expire_all()
-        refetched = await alert_repo.get_by_id(created.id)
+        refetched = await alert_repo.get_by_id(created_id)
         assert refetched is not None
         assert refetched.status == "RESOLVED"
         assert refetched.status_enum == AlertStatus.RESOLVED
@@ -168,8 +182,9 @@ class TestCliAlertsTriagePG:
         assert "Resolved at:" in captured.out
 
         # Verify DB persistence
+        created_id = created.id
         pg_session.expire_all()
-        refetched = await alert_repo.get_by_id(created.id)
+        refetched = await alert_repo.get_by_id(created_id)
         assert refetched is not None
         assert refetched.status == "RESOLVED"
         assert refetched.acknowledged_at is None
@@ -203,7 +218,8 @@ class TestCliAlertsTriagePG:
         assert "Cannot transition alert" in captured.err
 
         # Verify DB state is still RESOLVED
+        created_id = created.id
         pg_session.expire_all()
-        refetched = await alert_repo.get_by_id(created.id)
+        refetched = await alert_repo.get_by_id(created_id)
         assert refetched is not None
         assert refetched.status == "RESOLVED"

@@ -443,13 +443,18 @@ Features:
   - no modo in-memory (sem `--persist`): despacho direto via webhook configurado sem depender de banco de dados ou conexão com PostgreSQL;
 - testes unitários exaustivos (repositório, serviço de entrega, integração na CLI) e testes de integração com banco PostgreSQL real.
 
-### v0.7 — Containers
+### v0.7.0 — REST API & Remote Operations — completed
 
-- Dockerfile;
-- Docker Compose;
-- backend;
-- banco;
-- frontend.
+- API HTTP REST assíncrona versionada sob o prefixo `/api/v1` construída com FastAPI e Pydantic v2;
+- Reuso estrito dos Application Services existentes (`HostQueryService`, `HistoryService`, `AlertQueryService`, `AlertTriageService`) sem duplicar regras da CLI;
+- Health endpoints: probe legado `GET /health`, liveness probe leve `GET /api/v1/health/live` e readiness probe `GET /api/v1/health/ready` (validação `SELECT 1` no PostgreSQL e sanitização completa de segredos);
+- Hosts endpoints: `GET /api/v1/hosts` com paginação (`limit`, `offset`) e filtro `enabled`; histórico detalhado `GET /api/v1/hosts/{target}/history` com validação de alvo via `NetworkTarget`;
+- Scans endpoints: `GET /api/v1/scans/{scan_id}` detalhando portas sondadas, eventos de monitoramento e alertas gerados;
+- Security alerts endpoints: `GET /api/v1/alerts/summary` com agregação estática via SQL GROUP BY (`total`, `by_status`, `by_severity`), listagem `GET /api/v1/alerts` com múltiplos filtros combinados, detalhes `GET /api/v1/alerts/{alert_id}` e auditoria `GET /api/v1/alerts/{alert_id}/deliveries`;
+- Triagem remota: endpoints de mutação `POST /api/v1/alerts/{alert_id}/acknowledge` e `POST /api/v1/alerts/{alert_id}/resolve` via `AlertTriageService` com retorno HTTP 409 em transições inválidas;
+- Autenticação e segurança: header obrigatório `X-API-Key`, bloqueio de mutações em dev local sem chave configurada (HTTP 503 `MUTATIONS_DISABLED`), verificação em tempo constante (`secrets.compare_digest`), middleware de CORS estrito e opt-in via `API_CORS_ORIGINS`;
+- Lifespan gerenciado com encerramento gracioso do pool do banco (`dispose_engine`);
+- Suíte completa de testes unitários (100% green) e testes de integração com PostgreSQL real.
 
 ### v0.8 — Qualidade
 

@@ -49,6 +49,7 @@ class ScanDetailsResult:
     ports: list[PortResultSummary]
     events: list[EventSummary]
     alerts: list[AlertSummary] = field(default_factory=list)
+    target: str | None = None
 
 
 @dataclass(frozen=True)
@@ -193,6 +194,9 @@ class HistoryService:
             for al in alerts
         ]
 
+        host = await self._host_repo.get_by_id(scan.host_id)
+        target_addr = host.address if host is not None else None
+
         return ScanDetailsResult(
             scan_id=scan.id,
             status=scan.status,
@@ -202,4 +206,5 @@ class HistoryService:
             ports=port_summaries,
             events=event_summaries,
             alerts=alert_summaries,
+            target=target_addr,
         )

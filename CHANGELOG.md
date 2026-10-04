@@ -1,6 +1,37 @@
 # Changelog
 
-## [0.6.0] - Unreleased
+## [0.7.0] - 2026-10-04
+
+### Added
+- REST API subsystem built with FastAPI and Pydantic v2 under versioned prefix `/api/v1`:
+  - Shared domain and persistence architecture: endpoints use existing `HistoryService`, `HostQueryService`, `AlertQueryService`, and `AlertTriageService` with zero duplication of business rules or SQL queries.
+  - Health & Diagnostic endpoints:
+    - `GET /health`: Legacy health endpoint (`{"status": "ok", "service": "netsentinel"}`).
+    - `GET /api/v1/health/live`: Lightweight liveness probe with no database connectivity checks.
+    - `GET /api/v1/health/ready`: Readiness probe validating PostgreSQL connection (`SELECT 1`), returning HTTP 503 if unavailable with full sanitization of database errors and credentials.
+  - Monitored Hosts endpoints:
+    - `GET /api/v1/hosts`: Paginated listing of hosts (`items`, `count`, `limit`, `offset`) with optional `enabled` filter.
+    - `GET /api/v1/hosts/{target}/history`: Recent scan history for a validated target (IPv4, IPv6, or hostname). Returns HTTP 404 for unknown or invalid targets.
+  - Scans endpoints:
+    - `GET /api/v1/scans/{scan_id}`: Comprehensive scan details including probed ports, detected events, and generated alerts. Returns HTTP 404 for missing scans and HTTP 422 for non-positive IDs.
+  - Security Alerts endpoints:
+    - `GET /api/v1/alerts/summary`: Static route aggregating alert metrics directly via SQL (`total`, `by_status`, `by_severity`) with zero counts for empty enum buckets.
+    - `GET /api/v1/alerts`: Alert queue query with combined `status`, `severity`, `type`, `target`, `limit`, and `offset` filtering.
+    - `GET /api/v1/alerts/{alert_id}`: Single alert inspection returning HTTP 404 when not found.
+    - `GET /api/v1/alerts/{alert_id}/deliveries`: Paginated audit log of notification delivery attempts for the specified alert.
+  - Remote Alert Triage endpoints:
+    - `POST /api/v1/alerts/{alert_id}/acknowledge`: Transitions alert to `ACKNOWLEDGED` using `AlertTriageService`. Returns HTTP 409 on invalid transition.
+    - `POST /api/v1/alerts/{alert_id}/resolve`: Transitions alert to `RESOLVED` using `AlertTriageService`. Returns HTTP 409 on invalid transition.
+  - Security & Authentication:
+    - Header-based authentication using `X-API-Key` (query string tokens are strictly ignored).
+    - Constant-time secret comparison via `secrets.compare_digest` to prevent timing attacks.
+    - Local development fallback: if `API_KEY` is not set, read endpoints are accessible while triage mutations return HTTP 503 `MUTATIONS_DISABLED`.
+    - Strict opt-in CORS middleware via `API_CORS_ORIGINS` with explicit allowed origins (wildcards prohibited).
+    - Lifespan handler cleanly disposing the SQLAlchemy engine pool upon shutdown.
+  - Comprehensive unit test suite with 100% pass rate across authentication, CORS, health, openapi schema, hosts, scans, and alert routes.
+  - PostgreSQL integration test suite validating real database queries, SQL group-by summary aggregation, pagination, and end-to-end alert triage lifecycle.
+
+## [0.6.0] - 2026-09-09
 
 ### Added
 - External notifications and alert delivery subsystem:
