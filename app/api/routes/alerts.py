@@ -177,7 +177,7 @@ async def list_alerts(
             status=r.status.upper(),
             target=r.target,
             port=r.port,
-            message=r.alert_type,  # default or formatted
+            message=r.message or r.alert_type,
             created_at=r.created_at,
             acknowledged_at=r.acknowledged_at,
             resolved_at=r.resolved_at,
@@ -225,7 +225,7 @@ async def get_alert(
         status=record.status.upper(),
         target=record.target,
         port=record.port,
-        message=record.alert_type,
+        message=record.message or record.alert_type,
         created_at=record.created_at,
         acknowledged_at=record.acknowledged_at,
         resolved_at=record.resolved_at,

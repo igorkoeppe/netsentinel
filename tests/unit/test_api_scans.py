@@ -123,3 +123,85 @@ async def test_get_scan_details_invalid_id() -> None:
             resp = await client.get("/api/v1/scans/0")
             assert resp.status_code == 422
             assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
+
+
+@pytest.mark.asyncio
+async def test_list_scans_empty(mock_db_session: AsyncMock) -> None:
+    app.dependency_overrides[get_session] = lambda: mock_db_session
+    try:
+        with (
+            patch.object(Settings, "get_api_key", return_value=None),
+            patch(
+                "app.services.scan_query.ScanQueryService.list_scans",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                resp = await client.get("/api/v1/scans")
+                assert resp.status_code == 200
+                data = resp.json()
+                assert data["items"] == []
+                assert data["count"] == 0
+                assert data["limit"] == 20
+                assert data["offset"] == 0
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_list_scans_populated(mock_db_session: AsyncMock) -> None:
+    from app.services.scan_query import ScanListItem
+
+    app.dependency_overrides[get_session] = lambda: mock_db_session
+    sample_scans = [
+        ScanListItem(
+            id=10,
+            target="192.168.1.1",
+            status="available",
+            response_time_ms=3.5,
+            started_at=_NOW,
+            finished_at=_NOW,
+        )
+    ]
+    try:
+        with (
+            patch.object(Settings, "get_api_key", return_value=None),
+            patch(
+                "app.services.scan_query.ScanQueryService.list_scans",
+                new_callable=AsyncMock,
+                return_value=sample_scans,
+            ),
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                resp = await client.get(
+                    "/api/v1/scans?limit=10&offset=5&target=192.168.1.1"
+                )
+                assert resp.status_code == 200
+                data = resp.json()
+                assert data["count"] == 1
+                assert data["limit"] == 10
+                assert data["offset"] == 5
+                item = data["items"][0]
+                assert item["id"] == 10
+                assert item["target"] == "192.168.1.1"
+                assert item["status"] == "AVAILABLE"
+                assert item["response_time_ms"] == 3.5
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_list_scans_invalid_pagination() -> None:
+    with patch.object(Settings, "get_api_key", return_value=None):
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.get("/api/v1/scans?limit=0")
+            assert resp.status_code == 422
+            resp = await client.get("/api/v1/scans?offset=-1")
+            assert resp.status_code == 422

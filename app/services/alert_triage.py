@@ -127,7 +127,7 @@ class AlertTriageService:
             The transaction is safely rolled back before propagating.
         """
         try:
-            record = await self._alert_repo.get_by_id(alert_id)
+            record = await self._alert_repo.get_by_id(alert_id, for_update=True)
             if record is None:
                 raise AlertNotFoundError(alert_id)
 
@@ -201,7 +201,7 @@ class AlertTriageService:
             The transaction is safely rolled back before propagating.
         """
         try:
-            record = await self._alert_repo.get_by_id(alert_id)
+            record = await self._alert_repo.get_by_id(alert_id, for_update=True)
             if record is None:
                 raise AlertNotFoundError(alert_id)
 

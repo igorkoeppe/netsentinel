@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
-from typing import Any, cast
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -168,7 +168,13 @@ class AlertRepository:
         SecurityAlertRecord | None
             The updated record, or ``None`` if no record with ``alert_id`` exists.
         """
-        record = await self._session.get(SecurityAlertRecord, alert_id)
+        stmt = (
+            select(SecurityAlertRecord)
+            .options(joinedload(SecurityAlertRecord.host))
+            .where(SecurityAlertRecord.id == alert_id)
+        )
+        result = await self._session.execute(stmt)
+        record = result.scalars().first()
         if record is None:
             return None
 
@@ -177,7 +183,6 @@ class AlertRepository:
         record.resolved_at = lifecycle.resolved_at
 
         await self._session.flush()
-        await self._session.refresh(record)
         logger.debug(
             "SecurityAlertRecord lifecycle updated: id=%s status=%s",
             alert_id,
@@ -189,12 +194,29 @@ class AlertRepository:
     # Read operations
     # ------------------------------------------------------------------
 
-    async def get_by_id(self, alert_id: int) -> SecurityAlertRecord | None:
-        """Return the alert record with the given primary key, or ``None``."""
-        return cast(
-            SecurityAlertRecord | None,
-            await self._session.get(SecurityAlertRecord, alert_id),
+    async def get_by_id(
+        self, alert_id: int, *, for_update: bool = False
+    ) -> SecurityAlertRecord | None:
+        """Return the alert record with the given primary key, or ``None``.
+
+        The associated ``Host`` is eagerly loaded via ``joinedload`` to avoid
+        lazy-loading I/O in async contexts.
+        With ``for_update=True``, lock the alert until commit or rollback and
+        refresh any cached ORM state before validating a lifecycle transition.
+        """
+        stmt = (
+            select(SecurityAlertRecord)
+            .options(joinedload(SecurityAlertRecord.host))
+            .where(SecurityAlertRecord.id == alert_id)
         )
+        if for_update:
+            # Lock only the alert: the eager host join is nullable in PostgreSQL.
+            # Refresh identity-map entries after waiting for another transaction.
+            stmt = stmt.with_for_update(of=SecurityAlertRecord).execution_options(
+                populate_existing=True
+            )
+        result = await self._session.execute(stmt)
+        return result.scalars().first()
 
     async def list_by_host(
         self,

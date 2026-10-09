@@ -18,7 +18,41 @@ services:
       timeout: 5s
       retries: 5
 
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: netsentinel_api
+    profiles:
+      - web
+    environment:
+      DATABASE_URL: postgresql+asyncpg://netsentinel_app:${NETSENTINEL_DB_PASSWORD:-testruntimepassword}@db:5432/netsentinel
+      API_KEY: ${API_KEY:-}
+      APP_NAME: NetSentinel
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health/live')"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  dashboard:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: netsentinel_dashboard
+    profiles:
+      - web
+    ports:
+      - "127.0.0.1:3000:80"
+    depends_on:
+      api:
+        condition: service_healthy
+
 volumes:
   netsentinel_postgres_data:
-    name: projeto_netsentinel_netsentinel_postgres_data
-    external: true
+    name: ${NETSENTINEL_POSTGRES_VOLUME:-projeto_netsentinel_netsentinel_postgres_data}

@@ -220,15 +220,15 @@ class TestAlertTriageServicePG:
         )
         await pg_session.commit()
 
+        created_id = created.id
         # Resolve first
         res_time = _NOW + timedelta(minutes=10)
-        await triage_service.resolve(created.id, at=res_time)
+        await triage_service.resolve(created_id, at=res_time)
 
         # Attempting acknowledge on RESOLVED alert must fail
         with pytest.raises(InvalidAlertStateTransitionError):
-            await triage_service.acknowledge(created.id)
+            await triage_service.acknowledge(created_id)
 
-        created_id = created.id
         pg_session.expire_all()
         refetched = await alert_repo.get_by_id(created_id)
         assert refetched is not None
@@ -250,15 +250,15 @@ class TestAlertTriageServicePG:
         )
         await pg_session.commit()
 
+        created_id = created.id
         # Resolve first
         res_time = _NOW + timedelta(minutes=10)
-        await triage_service.resolve(created.id, at=res_time)
+        await triage_service.resolve(created_id, at=res_time)
 
         # Attempting resolve on already RESOLVED alert must fail
         with pytest.raises(InvalidAlertStateTransitionError):
-            await triage_service.resolve(created.id)
+            await triage_service.resolve(created_id)
 
-        created_id = created.id
         pg_session.expire_all()
         refetched = await alert_repo.get_by_id(created_id)
         assert refetched is not None

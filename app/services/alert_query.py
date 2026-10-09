@@ -46,6 +46,7 @@ class AlertListItem:
     created_at: datetime
     acknowledged_at: datetime | None = None
     resolved_at: datetime | None = None
+    message: str = ""
 
 
 class AlertQueryService:
@@ -153,6 +154,7 @@ class AlertQueryService:
                 created_at=rec.created_at,
                 acknowledged_at=rec.acknowledged_at,
                 resolved_at=rec.resolved_at,
+                message=getattr(rec, "message", "") or rec.alert_type,
             )
             for rec in records
         ]
@@ -188,4 +190,5 @@ class AlertQueryService:
             created_at=rec.created_at,
             acknowledged_at=rec.acknowledged_at,
             resolved_at=rec.resolved_at,
+            message=getattr(rec, "message", "") or rec.alert_type,
         )

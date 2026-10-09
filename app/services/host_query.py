@@ -52,8 +52,9 @@ class HostQueryService:
         limit: int = 20,
         offset: int = 0,
         enabled: bool | None = None,
+        q: str | None = None,
     ) -> list[HostItem]:
-        """Fetch hosts with pagination and optional enabled filter."""
+        """Fetch hosts with pagination and optional enabled and search filters."""
         if limit <= 0:
             raise ValueError(f"limit must be a positive integer, got {limit!r}")
         if offset < 0:
@@ -61,6 +62,7 @@ class HostQueryService:
 
         records = await self._host_repo.list(
             enabled=enabled,
+            q=q,
             limit=limit,
             offset=offset,
         )

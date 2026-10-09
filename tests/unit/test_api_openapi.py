@@ -26,8 +26,10 @@ async def test_openapi_schema_structure() -> None:
             "/health",
             "/api/v1/health/live",
             "/api/v1/health/ready",
+            "/api/v1/dashboard/summary",
             "/api/v1/hosts",
             "/api/v1/hosts/{target}/history",
+            "/api/v1/scans",
             "/api/v1/scans/{scan_id}",
             "/api/v1/alerts",
             "/api/v1/alerts/summary",
@@ -41,7 +43,7 @@ async def test_openapi_schema_structure() -> None:
 
         # Check tags
         all_tags = {tag["name"] for tag in schema.get("tags", [])}
-        expected_tags = {"Health", "Hosts", "Scans", "Alerts"}
+        expected_tags = {"Health", "Dashboard", "Hosts", "Scans", "Alerts"}
         for t in expected_tags:
             # Tag can be defined in top-level or on operations
             op_tags = {

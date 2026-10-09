@@ -95,3 +95,26 @@ class ScanDetailsResponse(BaseModel):
         if dt is None:
             return None
         return _ensure_utc(dt).isoformat()  # type: ignore[union-attr]
+
+
+class ScanSummaryResponse(BaseModel):
+    """Summary representation of a scan for global listings."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: int = Field(..., description="Scan identifier")
+    target: str = Field(..., description="Network address of the target host")
+    status: str = Field(..., description="Overall host status during this scan")
+    response_time_ms: float | None = Field(
+        None, description="Host response time in milliseconds"
+    )
+    started_at: datetime = Field(..., description="Timestamp when scan began")
+    finished_at: datetime | None = Field(
+        None, description="Timestamp when scan completed"
+    )
+
+    @field_serializer("started_at", "finished_at")
+    def serialize_datetime(self, dt: datetime | None) -> str | None:
+        if dt is None:
+            return None
+        return _ensure_utc(dt).isoformat()  # type: ignore[union-attr]

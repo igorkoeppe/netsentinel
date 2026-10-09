@@ -233,6 +233,8 @@ class TestAlertQueryServicePG:
             ),
         )
         await pg_session.commit()
+        # Expire session to ensure entity is not cached and lazy-loading would fail
+        pg_session.expire_all()
 
         item = await query_service.get_alert(rec.id)
         assert item is not None
@@ -240,6 +242,10 @@ class TestAlertQueryServicePG:
         assert item.target == "10.20.30.40"
         assert item.port == 22
         assert item.status == "OPEN"
+
+        # Nonexistent alert
+        not_found = await query_service.get_alert(999_999)
+        assert not_found is None
 
     async def test_eager_loading_no_n_plus_one(
         self,

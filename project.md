@@ -456,13 +456,22 @@ Features:
 - Lifespan gerenciado com encerramento gracioso do pool do banco (`dispose_engine`);
 - Suíte completa de testes unitários (100% green) e testes de integração com PostgreSQL real.
 
-### v0.8 — Qualidade
+### v0.8.0 — Web Dashboard — functionally complete
 
-- pytest;
-- coverage;
-- Ruff;
-- mypy;
-- GitHub Actions.
+- Dashboard web defensivo construído com React, TypeScript (modo strict), Vite e React Router;
+- Gerenciamento de estado de servidor com TanStack Query (caching determinístico, polling configurável e invalidação de queries);
+- Visualização de métricas operacionais com Recharts (distribuição por status e severidade com suporte a acessibilidade);
+- Overview operacional com cards agregados, gráficos e tabelas de alertas e scans recentes;
+- Diretório de hosts com busca textual server-side (`q`), filtro por status ativo e navegação para histórico de scans;
+- Explorador global de scans com paginação e filtro por alvo, e visualização detalhada de portas, eventos e alertas associados;
+- Fila de alertas de segurança com filtros combinados (status, severidade, alvo, tipo), sincronização bidirecional na query string da URL e paginação;
+- Ações interativas de triagem (`acknowledge` e `resolve`) com confirmação modal, prevenção de duplo envio e tratamento resiliente de conflitos HTTP 409;
+- Auditoria de histórico de entregas de notificações por alerta com sanitização e ocultação estrita de segredos;
+- Painel de configurações com teste de conectividade, gerenciamento seguro de API Key em memória ou sessionStorage temporária, alternância de temas (dark, light, system) e ajuste de taxa de polling;
+- Extensões na REST API: endpoint global `GET /api/v1/scans` via `ScanQueryService`, endpoint de agregação SQL `GET /api/v1/dashboard/summary` via `DashboardQueryService` e busca server-side `q` em `GET /api/v1/hosts`;
+- Indicadores de saúde e prontidão em tempo real (`/api/v1/health/live` e `/api/v1/health/ready`) integrados à navegação superior;
+- Dockerfile multi-stage para o frontend (Node 20 build -> Nginx alpine) com fallback SPA, headers de segurança (CSP, nosniff, frame-options) e proxy reverso same-origin para `/api/`;
+- Docker Compose com profile `web` para orquestração completa da stack (`db`, `api`, `dashboard`).
 
 ### v1.0 — Release inicial
 

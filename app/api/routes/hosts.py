@@ -32,10 +32,13 @@ async def list_hosts(
     ),
     offset: int = Query(default=0, ge=0, description="Pagination offset"),
     enabled: bool | None = Query(default=None, description="Filter by active status"),
+    q: str | None = Query(
+        default=None, description="Search by name or address substring"
+    ),
     session: AsyncSession = Depends(get_session),
 ) -> PaginatedResponse[HostResponse]:
     service = HostQueryService(session)
-    hosts = await service.list_hosts(limit=limit, offset=offset, enabled=enabled)
+    hosts = await service.list_hosts(limit=limit, offset=offset, enabled=enabled, q=q)
     items = [
         HostResponse(
             id=h.id,

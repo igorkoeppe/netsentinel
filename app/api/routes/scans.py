@@ -2,24 +2,66 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Path, status
+from fastapi import APIRouter, Depends, Path, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_session, require_read_auth
 from app.api.errors import APIError
+from app.api.schemas.common import PaginatedResponse
 from app.api.schemas.scans import (
     MonitoringEventResponse,
     PortResultResponse,
     ScanAlertResponse,
     ScanDetailsResponse,
+    ScanSummaryResponse,
 )
 from app.services.history import HistoryService
+from app.services.scan_query import ScanQueryService
 
 router = APIRouter(
     prefix="/scans",
     tags=["Scans"],
     dependencies=[Depends(require_read_auth)],
 )
+
+
+@router.get(
+    "",
+    summary="List scans",
+    description=(
+        "List global monitoring scans with pagination and optional target filter."
+    ),
+    response_model=PaginatedResponse[ScanSummaryResponse],
+)
+async def list_scans(
+    limit: int = Query(
+        default=20, ge=1, le=100, description="Items per page (max 100)"
+    ),
+    offset: int = Query(default=0, ge=0, description="Pagination offset"),
+    target: str | None = Query(
+        default=None, description="Filter by target host address"
+    ),
+    session: AsyncSession = Depends(get_session),
+) -> PaginatedResponse[ScanSummaryResponse]:
+    service = ScanQueryService(session)
+    scans = await service.list_scans(limit=limit, offset=offset, target=target)
+    items = [
+        ScanSummaryResponse(
+            id=s.id,
+            target=s.target,
+            status=s.status.upper(),
+            response_time_ms=s.response_time_ms,
+            started_at=s.started_at,
+            finished_at=s.finished_at,
+        )
+        for s in scans
+    ]
+    return PaginatedResponse(
+        items=items,
+        limit=limit,
+        offset=offset,
+        count=len(items),
+    )
 
 
 @router.get(

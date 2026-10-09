@@ -205,20 +205,20 @@ class TestCliAlertsTriagePG:
             monitoring_event_id=None,
             alert=_make_alert(port=80),
         )
+        created_id = created.id
         await pg_session.commit()
 
         # Direct resolve first
-        await run_resolve_alert(created.id)
+        await run_resolve_alert(created_id)
 
         # Attempting acknowledge on RESOLVED alert
-        code = await run_acknowledge_alert(created.id)
+        code = await run_acknowledge_alert(created_id)
         assert code == 1
 
         captured = capsys.readouterr()
         assert "Cannot transition alert" in captured.err
 
         # Verify DB state is still RESOLVED
-        created_id = created.id
         pg_session.expire_all()
         refetched = await alert_repo.get_by_id(created_id)
         assert refetched is not None

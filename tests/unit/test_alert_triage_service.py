@@ -129,7 +129,7 @@ class TestAcknowledge:
         result = await service.acknowledge(1, at=ack_time)
 
         assert result is updated_record
-        mock_alert_repo.get_by_id.assert_awaited_once_with(1)
+        mock_alert_repo.get_by_id.assert_awaited_once_with(1, for_update=True)
         mock_alert_repo.update_lifecycle.assert_awaited_once()
         call_args = mock_alert_repo.update_lifecycle.await_args
         assert call_args.args[0] == 1
@@ -301,7 +301,7 @@ class TestResolve:
         result = await service.resolve(2, at=res_time)
 
         assert result is updated_record
-        mock_alert_repo.get_by_id.assert_awaited_once_with(2)
+        mock_alert_repo.get_by_id.assert_awaited_once_with(2, for_update=True)
         mock_alert_repo.update_lifecycle.assert_awaited_once()
         lifecycle_arg: AlertLifecycle = (
             mock_alert_repo.update_lifecycle.await_args.args[1]

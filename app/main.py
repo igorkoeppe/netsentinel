@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.errors import register_error_handlers
 from app.api.routes import (
     alerts_router,
+    dashboard_router,
     health_router,
     hosts_router,
     scans_router,
@@ -62,6 +63,7 @@ def create_app() -> FastAPI:
     # Versioned REST API routes under /api/v1
     api_v1 = APIRouter(prefix="/api/v1")
     api_v1.include_router(health_router)
+    api_v1.include_router(dashboard_router)
     api_v1.include_router(hosts_router)
     api_v1.include_router(scans_router)
     api_v1.include_router(alerts_router)

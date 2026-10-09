@@ -102,7 +102,9 @@ async def test_list_hosts_populated_and_pagination(mock_db_session: AsyncMock) -
                 assert item2["name"] is None
                 assert item2["updated_at"] is None
 
-                mock_list.assert_awaited_once_with(limit=10, offset=5, enabled=True)
+                mock_list.assert_awaited_once_with(
+                    limit=10, offset=5, enabled=True, q=None
+                )
     finally:
         app.dependency_overrides.clear()
 
@@ -206,3 +208,32 @@ async def test_get_host_history_invalid_target() -> None:
             resp = await client.get("/api/v1/hosts/invalid target with spaces/history")
             assert resp.status_code == 404
             assert resp.json()["error"]["code"] == "HOST_NOT_FOUND"
+
+
+@pytest.mark.asyncio
+async def test_list_hosts_with_search_query(mock_db_session: AsyncMock) -> None:
+    app.dependency_overrides[get_session] = lambda: mock_db_session
+    mock_list = AsyncMock(return_value=[])
+    try:
+        with (
+            patch.object(Settings, "get_api_key", return_value=None),
+            patch(
+                "app.services.host_query.HostQueryService.list_hosts",
+                new=mock_list,
+            ),
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                resp = await client.get(
+                    "/api/v1/hosts?q=server&enabled=true&limit=10&offset=5"
+                )
+                assert resp.status_code == 200
+                mock_list.assert_awaited_once_with(
+                    limit=10,
+                    offset=5,
+                    enabled=True,
+                    q="server",
+                )
+    finally:
+        app.dependency_overrides.clear()

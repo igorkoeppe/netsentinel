@@ -18,30 +18,36 @@ Uma ferramenta educacional e defensiva de monitoramento e análise de conectivid
 - Entrega de notificações e webhooks em tempo real (`NotificationPolicy`, `WebhookNotificationSender`).
 - Auditoria e persistência de histórico de entregas de notificações no PostgreSQL (`notification_deliveries`).
 - API HTTP REST versionada (`/api/v1`) com FastAPI, OpenAPI interativo (`/docs`, `/redoc`), autenticação via header `X-API-Key`, triagem remota e CORS configurável.
+- Dashboard Web defensivo moderno em React + TypeScript strict com métricas operacionais, gráficos de status e severidade, busca de hosts, histórico global de scans, triagem interativa de alertas e suporte a temas (dark/light/system).
 
 ## Arquitetura
 
 ```text
-       ┌───────────┐         ┌───────────────────────┐
-       │    CLI    │         │  REST API (/api/v1)   │
-       └─────┬─────┘         └───────────┬───────────┘
-             │                           │
-             ▼                           ▼
-      ┌────────────────────────────────────────┐
-      │          Application Services          │
-      │ (HostQuery, History, AlertQuery, ...) │
-      └──────────────────┬─────────────────────┘
-                         │
-                         ▼
-      ┌────────────────────────────────────────┐
-      │         Repositories / Models          │
-      │   (Host, Scan, Event, Alert, Delivery) │
-      └──────────────────┬─────────────────────┘
-                         │
-                         ▼
-      ┌────────────────────────────────────────┐
-      │          PostgreSQL Database           │
-      └────────────────────────────────────────┘
+       ┌───────────┐         ┌─────────────────────────┐
+       │    CLI    │         │  Dashboard (React + TS) │
+       └─────┬─────┘         └────────────┬────────────┘
+             │                            │ HTTP / JSON
+             │                            ▼
+             │               ┌─────────────────────────┐
+             │               │   REST API (/api/v1)    │
+             │               └────────────┬────────────┘
+             ▼                            ▼
+      ┌───────────────────────────────────────────────┐
+      │             Application Services              │
+      │ (HostQuery, History, AlertQuery, Dashboard,   │
+      │  AlertTriage, NotificationDelivery, ...)      │
+      └──────────────────────┬────────────────────────┘
+                             │
+                             ▼
+      ┌───────────────────────────────────────────────┐
+      │             Repositories / Models             │
+      │      (Host, Scan, Event, Alert, Delivery)     │
+      └──────────────────────┬────────────────────────┘
+                             │
+                             ▼
+      ┌───────────────────────────────────────────────┐
+      │              PostgreSQL Database              │
+      └───────────────────────────────────────────────┘
 ```
 
 ## Instalação
@@ -442,8 +448,10 @@ A documentação interativa estará acessível em:
 | `GET` | `/health` | Pública | Endpoint legado de health (`{"status": "ok", "service": "netsentinel"}`). |
 | `GET` | `/api/v1/health/live` | Pública | Liveness probe (indica que a aplicação está rodando; sem I/O de banco). |
 | `GET` | `/api/v1/health/ready` | Pública | Readiness probe (valida conectividade `SELECT 1` com o PostgreSQL; 503 se indisponível). |
-| `GET` | `/api/v1/hosts` | `X-API-Key` | Lista hosts monitorados com paginação (`limit`, `offset`) e filtro `enabled`. |
+| `GET` | `/api/v1/dashboard/summary` | `X-API-Key` | Resumo agregado de métricas operacionais para o dashboard (hosts, scans, alertas por status/severidade). |
+| `GET` | `/api/v1/hosts` | `X-API-Key` | Lista hosts monitorados com paginação (`limit`, `offset`), filtro `enabled` e busca textual (`q`). |
 | `GET` | `/api/v1/hosts/{target}/history` | `X-API-Key` | Histórico de scans do host especificado (alvo validado via `NetworkTarget`). |
+| `GET` | `/api/v1/scans` | `X-API-Key` | Listagem global paginada de scans (`limit`, `offset`) com filtro opcional por alvo (`target`). |
 | `GET` | `/api/v1/scans/{scan_id}` | `X-API-Key` | Detalhes de um scan específico, incluindo portas sondadas, eventos e alertas gerados. |
 | `GET` | `/api/v1/alerts/summary` | `X-API-Key` | Métricas agregadas de alertas no banco via SQL (`total`, `by_status`, `by_severity`). |
 | `GET` | `/api/v1/alerts` | `X-API-Key` | Fila de alertas com paginação e filtros combinados (`status`, `severity`, `type`, `target`). |
@@ -460,31 +468,43 @@ curl -s http://127.0.0.1:8000/api/v1/health/live
 curl -s http://127.0.0.1:8000/api/v1/health/ready
 ```
 
-**2. Listar Hosts Monitorados:**
+**2. Obter Resumo do Dashboard:**
 ```bash
 curl -s -H "X-API-Key: sua-chave-aqui" \
-  "http://127.0.0.1:8000/api/v1/hosts?limit=10&offset=0"
+  http://127.0.0.1:8000/api/v1/dashboard/summary
 ```
 
-**3. Obter Histórico de um Alvo:**
+**3. Listar Hosts com Busca Textual:**
+```bash
+curl -s -H "X-API-Key: sua-chave-aqui" \
+  "http://127.0.0.1:8000/api/v1/hosts?q=local&limit=10&offset=0"
+```
+
+**4. Listar Scans Globais:**
+```bash
+curl -s -H "X-API-Key: sua-chave-aqui" \
+  "http://127.0.0.1:8000/api/v1/scans?limit=10&offset=0"
+```
+
+**5. Obter Histórico de um Alvo:**
 ```bash
 curl -s -H "X-API-Key: sua-chave-aqui" \
   "http://127.0.0.1:8000/api/v1/hosts/127.0.0.1/history?limit=5"
 ```
 
-**4. Obter Resumo Agregado de Alertas:**
+**6. Obter Resumo Agregado de Alertas:**
 ```bash
 curl -s -H "X-API-Key: sua-chave-aqui" \
   http://127.0.0.1:8000/api/v1/alerts/summary
 ```
 
-**5. Filtrar Alertas Abertos de Alta Severidade:**
+**7. Filtrar Alertas Abertos de Alta Severidade:**
 ```bash
 curl -s -H "X-API-Key: sua-chave-aqui" \
   "http://127.0.0.1:8000/api/v1/alerts?status=OPEN&severity=HIGH&limit=20"
 ```
 
-**6. Reconhecer e Resolver um Alerta Remotamente:**
+**8. Reconhecer e Resolver um Alerta Remotamente:**
 ```bash
 # Reconhecer (Acknowledge)
 curl -s -X POST -H "X-API-Key: sua-chave-aqui" \
@@ -494,6 +514,117 @@ curl -s -X POST -H "X-API-Key: sua-chave-aqui" \
 curl -s -X POST -H "X-API-Key: sua-chave-aqui" \
   http://127.0.0.1:8000/api/v1/alerts/42/resolve
 ```
+
+## Web Dashboard
+
+O **NetSentinel Web Dashboard** é uma interface web moderna, responsiva e defensiva para SOC e observabilidade de redes, construída com React 18, TypeScript strict, Vite, React Router 6 e TanStack Query 5.
+
+### Stack Técnica do Frontend
+
+- **Core & Runtime**: React 18, TypeScript em modo `strict`, Vite como bundler ultrarrápido.
+- **Roteamento**: React Router 6 com rotas aninhadas e fallback 404.
+- **Server State & Cache**: TanStack Query (React Query v5) para cache determinístico, auto-refetch, polling inteligente e invalidação atômica após mutações.
+- **Visualização de Dados**: Recharts para gráficos de distribuição por status e severidade com suporte a acessibilidade e legendas textuais.
+- **Design System & Estilo**: Tokens CSS customizados (variáveis CSS), Flexbox/Grid modernos, suporte nativo a temas `dark`, `light` e `system` com persistência em `localStorage`.
+- **Ícones**: Lucide React.
+- **Containerização**: Multi-stage build com Node 20 para compilação estática e Nginx 1.27 Alpine para servir assets de produção com proxy reverso same-origin.
+
+### Fluxo de Páginas e Telas
+
+1. **Overview (`/`)**:
+   - Cards com indicadores consolidados: total de hosts monitorados, scans executados, alertas abertos, reconhecidos, resolvidos e de alta criticidade.
+   - Gráficos acessíveis: distribuição de alertas por status (Bar Chart) e por severidade (Pie Chart ordenado logicamente: INFO -> CRITICAL).
+   - Tabelas resumidas com os 5 alertas mais recentes e os 5 últimos scans globais.
+   - Indicador de status operacional (Health & Readiness) em tempo real da API e do banco PostgreSQL.
+2. **Alerts (`/alerts`)**:
+   - Tabela defensiva com badges textuais para status (`OPEN`, `ACKNOWLEDGED`, `RESOLVED`) e severidade (`INFO` a `CRITICAL`).
+   - Filtros dinâmicos sincronizados bidirecionalmente com a query string da URL: status, severidade, alvo (`target`) e tipo de alerta (`type`).
+   - Paginação server-side com limites configuráveis (20, 50, 100).
+   - Ações rápidas de triagem direta ou navegação para detalhes.
+3. **Alert Details (`/alerts/:alertId`)**:
+   - Metadados completos do alerta: ID, severidade, tipo, status, alvo, porta, mensagem e datas de ciclo de vida (`created_at`, `acknowledged_at`, `resolved_at`).
+   - Ações de triagem seguras via modal: `Acknowledge` e `Resolve` com validação de estado, desabilitação de botões contra duplo clique e tratamento resiliente de conflitos concorrentes (HTTP 409).
+   - Seção de histórico de entregas de notificações (`deliveries`) com status de envio, tentativas, timestamps e mensagens de erro sanitizadas (sem expor segredos nem URLs de webhook).
+4. **Hosts (`/hosts`)**:
+   - Catálogo de alvos monitorados com filtros por status (`enabled`) e busca textual server-side (`q`) por endereço IP ou hostname.
+   - Paginação e navegação com 1 clique para o histórico do host.
+5. **Host Details (`/hosts/:target`)**:
+   - Histórico cronológico de scans realizados para o alvo informado (`GET /api/v1/hosts/{target}/history`), exibindo ID, tempo de resposta, timestamps e links para o scan individual.
+6. **Scans (`/scans`)**:
+   - Visão global paginada de todos os scans registrados no sistema com filtro por alvo.
+7. **Scan Details (`/scans/:scanId`)**:
+   - Inspeção aprofundada organizada em seções:
+     - **Overview**: Alvo, status de disponibilidade, tempo de resposta (ms), início e término.
+     - **Ports**: Tabela de resultados por porta sondada com status e latência.
+     - **Monitoring Events**: Linha do tempo de eventos de monitoramento detectados (`PORT_OPENED`, `HOST_BECAME_AVAILABLE`, etc.).
+     - **Security Alerts**: Alertas de segurança gerados durante o scan com links diretos para a página de cada alerta.
+8. **Settings (`/settings`)**:
+   - Painel de conexão com a API: teste de conectividade em tempo real para verificar liveness e credenciais.
+   - Gerenciamento de API Key em runtime: campo protegido com opção de mostrar/ocultar senha, armazenamento volátil em memória por padrão ou opcional em `sessionStorage` para a aba ativa, e botão `Clear API Key` para remoção instantânea.
+   - Preferências de tema: alternância imediata entre `system`, `light` e `dark`.
+   - Intervalo de polling configurável: `Off`, `5s`, `10s`, `30s`, `60s` (padrão: `10s`). Pausa automática quando a aba do navegador fica em segundo plano.
+
+### Desenvolvimento Local
+
+Para desenvolver localmente com hot-reload no frontend e backend:
+
+**Terminal 1 — Backend FastAPI:**
+```bash
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+**Terminal 2 — Frontend Vite:**
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+O servidor de desenvolvimento do Vite iniciará em `http://127.0.0.1:5173`. As requisições direcionadas para `/api/` são automaticamente encaminhadas via proxy interno do Vite para `http://127.0.0.1:8000`, evitando problemas de CORS durante o desenvolvimento.
+
+### Execução em Produção com Docker Compose
+
+A stack completa de produção pode ser inicializada através do Docker Compose utilizando o profile `web`:
+
+```bash
+docker compose --profile web up --build -d
+```
+
+O Compose cria o volume de dados automaticamente na primeira execução e reutiliza
+`projeto_netsentinel_netsentinel_postgres_data` quando ele já existe. Para usar outro
+volume, defina `NETSENTINEL_POSTGRES_VOLUME` no ambiente ou no `.env` antes de iniciar.
+O volume é gerenciado pelo Compose: `docker compose down -v` remove seus dados.
+
+Serviços iniciados:
+- `db`: PostgreSQL 16 com persistência em volume seguro (`port 5432`).
+- `api`: Container FastAPI executando o backend em Python 3.12 (`port 8000`).
+- `dashboard`: Container Nginx Alpine servindo a aplicação compilada e atuando como proxy reverso same-origin (`port 3000`).
+
+Acesse a interface no navegador:
+```text
+http://127.0.0.1:3000
+```
+
+Todas as chamadas para `/api/v1/*` no navegador utilizam a mesma origem (`same-origin`), sendo roteadas transparentemente pelo Nginx para o backend FastAPI. O Nginx também possui fallback SPA (`try_files $uri $uri/ /index.html`), garantindo que rotas diretas (ex: `http://127.0.0.1:3000/alerts`) funcionem sem erro 404.
+
+### Gerenciamento de Autenticação e API Key
+
+- **Ausência de Segredos Embutidos**: Nenhuma chave de API é gravada no código-fonte, variáveis `VITE_*` ou imagem Docker. Não existe variável `VITE_API_KEY`.
+- **Fornecimento em Runtime**: O operador insere a API Key no menu **Settings** ou no aviso de autenticação da aplicação.
+- **Armazenamento Seguro no Cliente**:
+  - Por padrão, a chave reside estritamente no estado em memória da aplicação React.
+  - Caso o operador marque "Remember for this browser tab", ela é guardada temporariamente no `sessionStorage` (destruído ao fechar a aba).
+  - A chave **nunca** é gravada no `localStorage` nem enviada via query parameters na URL.
+  - A limpeza da chave via `Clear API Key` apaga imediatamente o estado em memória e limpa o `sessionStorage`.
+- **Comunicação Segura**: O client HTTP central injeta a chave no cabeçalho padronizado `X-API-Key`.
+- **Prevenção XSS**: Toda informação exibida pela interface (mensagens de erro, alvos, nomes de hosts) é renderizada com escape padrão do React, com uso estritamente vetado de `dangerouslySetInnerHTML`.
+
+### Recomendações de Segurança para Produção
+
+A autenticação por API Key única e comunicação HTTP local são projetadas para laboratórios, testes e redes defensivas controladas. Para publicação em ambientes corporativos ou expostos:
+- Utilize terminação TLS/HTTPS em proxy reverso (Nginx, Caddy ou Cloudflare).
+- Configure certificados digitais válidos e force cabeçalhos HSTS (`Strict-Transport-Security`).
+- Considere a evolução para provedores de identidade centralizados (OIDC/OAuth2/SAML) e políticas de RBAC (Role-Based Access Control).
 
 ## Roadmap
  
@@ -529,7 +660,14 @@ NOTIFICATION_WEBHOOK_TIMEOUT=5.0
 Exemplo de execução com persistência e notificações:
 ```bash
 netsentinel monitor 127.0.0.1 --ports 22,80,443 --persist
-``` 
+```
+
+A **v0.8.0** introduz o Web Dashboard moderno para operação defensiva:
+- **Interface Web em React + TypeScript**: Dashboard completo para SOC e observabilidade com páginas Overview, Alerts, Alert Details, Hosts, Host Details, Scans, Scan Details e Settings.
+- **Visualização Operacional e Triagem**: Métricas gráficas de status e severidade com Recharts, filtros avançados na fila de alertas com sincronização na URL, e ações de triagem (`acknowledge` e `resolve`) com confirmação modal e proteção contra concorrência (HTTP 409).
+- **Extensões de API no Backend**: Endpoint global `GET /api/v1/scans` com paginação e filtro por alvo via `ScanQueryService`, agregação analítica `GET /api/v1/dashboard/summary` via `DashboardQueryService` e busca textual server-side `q` em `GET /api/v1/hosts`.
+- **Autenticação Segura em Runtime**: Operação com API Key informada em tempo de execução, mantida em memória (ou `sessionStorage` opcional para a aba), cabeçalho `X-API-Key` estrito, sem chaves no build (`VITE_API_KEY`) e ausência de `localStorage` para credenciais.
+- **Empacotamento e Entrega com Docker**: Multi-stage build Nginx Alpine para frontend estático com headers de segurança, fallback SPA e proxy reverso same-origin para `/api/`, integrados ao Docker Compose via profile `web`.
 
 ## Uso responsável
 

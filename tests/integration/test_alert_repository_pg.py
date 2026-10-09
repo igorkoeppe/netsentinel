@@ -564,3 +564,43 @@ class TestLifecyclePersistence:
         assert len(by_scan) == 1
         assert by_scan[0].status == "ACKNOWLEDGED"
         assert by_scan[0].acknowledged_at == ack_time
+
+
+class TestGetById:
+    async def test_get_by_id_eager_loads_host_without_missing_greenlet(
+        self,
+        host_repo: HostRepository,
+        pg_session: AsyncSession,
+    ) -> None:
+        """Confirm get_by_id eagerly loads the associated Host so that accessing
+        record.host and record.host.address does not raise MissingGreenlet even
+        after expire_all() detaches/invalidates session attributes.
+        """
+        alert_repo = AlertRepository(pg_session)
+        host_id = await _make_host(host_repo, "10.200.1.5")
+        created = await alert_repo.create(
+            host_id=host_id,
+            scan_id=None,
+            monitoring_event_id=None,
+            alert=_port_opened_alert(443),
+        )
+        await pg_session.commit()
+
+        # Evict all loaded entities from session identity map
+        pg_session.expire_all()
+
+        record = await alert_repo.get_by_id(created.id)
+        assert record is not None
+        assert record.id == created.id
+        # Accessing host relationship must NOT trigger lazy-load / MissingGreenlet
+        assert record.host is not None
+        assert record.host.id == host_id
+        assert record.host.address == "10.200.1.5"
+
+    async def test_get_by_id_not_found_returns_none(
+        self,
+        pg_session: AsyncSession,
+    ) -> None:
+        alert_repo = AlertRepository(pg_session)
+        record = await alert_repo.get_by_id(999_999)
+        assert record is None

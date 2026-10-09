@@ -43,7 +43,7 @@ from __future__ import annotations
 import logging
 from typing import cast
 
-from sqlalchemy import select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -251,10 +251,11 @@ class HostRepository:
         self,
         *,
         enabled: bool | None = None,
+        q: str | None = None,
         limit: int | None = None,
         offset: int = 0,
     ) -> list[Host]:
-        """Return hosts ordered deterministically by ``id`` with optional pagination.
+        """Return hosts ordered by ``id`` with optional pagination and filters.
 
         Parameters
         ----------
@@ -262,6 +263,9 @@ class HostRepository:
             When ``True``, return only active hosts.
             When ``False``, return only disabled hosts.
             When ``None`` (default), return all hosts regardless of state.
+        q:
+            Optional search substring matched case-insensitively against
+            host ``name`` and ``address``.
         limit:
             Optional maximum number of hosts to return.
         offset:
@@ -274,9 +278,34 @@ class HostRepository:
         stmt = select(Host).order_by(Host.id)
         if enabled is not None:
             stmt = stmt.where(Host.enabled == enabled)
+        if q is not None and q.strip():
+            pattern = f"%{q.strip()}%"
+            stmt = stmt.where(
+                or_(Host.name.ilike(pattern), Host.address.ilike(pattern))
+            )
         if offset > 0:
             stmt = stmt.offset(offset)
         if limit is not None:
             stmt = stmt.limit(limit)
         result = await self._session.execute(stmt)
         return list(result.scalars().all())
+
+    async def get_summary(self) -> dict[str, int]:
+        """Aggregate host counts (total, enabled, disabled) using SQL.
+
+        Returns
+        -------
+        dict[str, int]
+            Keys: ``total``, ``enabled``, ``disabled``.
+        """
+        stmt = select(
+            func.count(Host.id),
+            func.count(case((Host.enabled.is_(True), 1))),
+            func.count(case((Host.enabled.is_(False), 1))),
+        )
+        row = (await self._session.execute(stmt)).one()
+        return {
+            "total": row[0] or 0,
+            "enabled": row[1] or 0,
+            "disabled": row[2] or 0,
+        }

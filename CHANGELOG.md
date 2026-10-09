@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.8.0] - 2026-10-09
+
+### Added
+- React/TypeScript web dashboard for modern defensive operations.
+- Operational overview with aggregate cards for hosts, scans, and alerts.
+- Alert status and severity visualizations with accessible bar and pie charts.
+- Alert filtering (status, severity, target, type) with bi-directional URL query sync and limit/offset pagination.
+- Web-based alert triage modals for acknowledging and resolving security alerts with HTTP 409 conflict handling.
+- Monitored hosts directory with server-side query search (`q`) and drill-down into target scan history.
+- Global scans explorer with pagination, target filtering, and scan details showing probed ports, detected events, and security alerts.
+- Alert notification delivery history audit log with sanitized error display and no credential exposure.
+- Real-time health and readiness status indicators for API and PostgreSQL database.
+- Runtime API key management in Settings with visibility toggle, in-memory by default, optional session storage for the tab, and clear key functionality.
+- Dark, light, and system theme switcher with persistent user preference in `localStorage`.
+- Configurable polling intervals (Off, 5s, 10s, 30s, 60s) with auto-pause during inactive tabs.
+- Global scan list REST endpoint `GET /api/v1/scans` supporting pagination and target filtering via `ScanQueryService`.
+- Dashboard summary REST endpoint `GET /api/v1/dashboard/summary` providing SQL aggregation via `DashboardQueryService`.
+- Server-side host search via `q` query parameter on `GET /api/v1/hosts`.
+- Multi-stage Docker build for frontend (Node 20 build -> Nginx alpine) with SPA fallback, security headers, CSP, and same-origin reverse proxy for `/api/`.
+- Root Dockerfile for backend FastAPI and updated `docker-compose.yml` supporting profile `web` for `api` and `dashboard`.
+- Reproducible local TCP test scenario with optional persistence and a dashboard walkthrough.
+
+### Fixed
+- Lock alerts during triage to prevent concurrent requests from overwriting resolved states.
+- Reset dashboard query caches when the API server or credentials change.
+- Display notification delivery query failures with an explicit retry action.
+- Create the PostgreSQL data volume automatically for new Compose installations.
+- Match the database health indicator to the API readiness response.
+
 ## [0.7.0] - 2026-10-04
 
 ### Added

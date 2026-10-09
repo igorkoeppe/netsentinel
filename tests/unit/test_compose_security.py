@@ -59,6 +59,8 @@ def test_compose_binds_only_loopback_and_preserves_volume(compose_config):
     mounts = {volume["target"]: volume for volume in db["volumes"]}
     assert mounts["/var/lib/postgresql/data"]["source"] == "netsentinel_postgres_data"
     assert mounts["/docker-entrypoint-initdb.d/010-runtime-role.sql"]["read_only"]
+    volume = json.loads(result.stdout)["volumes"]["netsentinel_postgres_data"]
+    assert not volume.get("external", False)
 
 
 @pytest.mark.parametrize("missing", ["admin", "runtime"])

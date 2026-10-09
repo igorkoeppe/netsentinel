@@ -54,13 +54,14 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import datetime
-from typing import cast
+from typing import Any, cast
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.models.host import Host
 from app.models.port_result import PortResult
 from app.models.scan import Scan
 
@@ -321,3 +322,49 @@ class ScanRepository:
 
         result = await self._session.execute(stmt)
         return list(result.scalars().all())
+
+    async def list_global(
+        self,
+        *,
+        limit: int = 20,
+        offset: int = 0,
+        target: str | None = None,
+    ) -> list[Scan]:
+        """Return scans ordered by started_at DESC, id DESC with optional target filter.
+
+        ``host`` is eagerly loaded via ``selectinload`` so that the host address
+        can be read without lazy loading or N+1 queries.
+        """
+        if limit <= 0:
+            raise ValueError(f"limit must be a positive integer, got {limit!r}")
+        if offset < 0:
+            raise ValueError(f"offset must be non-negative, got {offset!r}")
+
+        stmt = (
+            select(Scan)
+            .options(selectinload(Scan.host))
+            .order_by(Scan.started_at.desc(), Scan.id.desc())
+        )
+        if target is not None and target.strip():
+            stmt = stmt.join(Host, Scan.host_id == Host.id).where(
+                Host.address == target.strip()
+            )
+
+        if offset > 0:
+            stmt = stmt.offset(offset)
+        stmt = stmt.limit(limit)
+
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_summary(self) -> dict[str, Any]:
+        """Aggregate scans metrics: total count and latest started_at timestamp."""
+        stmt = select(
+            func.count(Scan.id),
+            func.max(Scan.started_at),
+        )
+        row = (await self._session.execute(stmt)).one()
+        return {
+            "total": row[0] or 0,
+            "last_scan_at": row[1],
+        }

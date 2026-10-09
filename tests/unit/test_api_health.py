@@ -8,6 +8,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.core.config import settings
+from app.core.version import get_version
 from app.main import app
 
 
@@ -35,7 +36,7 @@ async def test_liveness_endpoint_without_db() -> None:
         body = resp.json()
         assert body["status"] == "ok"
         assert body["service"] == "NetSentinel"
-        assert "0.7.0" in body["version"]
+        assert body["version"] == get_version()
 
 
 @pytest.mark.asyncio
