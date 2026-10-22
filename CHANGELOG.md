@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+- Unit tests no longer need `DATABASE_URL`: API validation tests failed with a 500 because FastAPI opens the `get_session` dependency before rejecting bad input. A shared unit-test fixture now replaces the session with a guard that fails if a test touches it.
+- Made the TCP probe timeout test deterministic. It relied on `192.0.2.1` never answering, but networks that reject it with an immediate RST correctly yield `CLOSED`; the test now simulates a hanging connection.
+
 ## [0.8.0] - 2026-10-09
 
 ### Added

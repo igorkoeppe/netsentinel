@@ -116,16 +116,30 @@ class TestClosedPort:
 
 
 class TestTimeout:
-    async def test_timeout_returns_timeout_status(self) -> None:
-        # Use a non-routable address to force a real timeout.
-        # RFC 5737 — 192.0.2.0/24 is reserved for documentation and must not route.
+    # The connection attempt is made to hang deterministically instead of relying
+    # on a non-routable address: some networks (sandboxes, egress firewalls) answer
+    # 192.0.2.0/24 with an immediate RST, which is correctly reported as CLOSED.
+
+    @pytest.fixture
+    def hanging_connection(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        async def _never_connects(
+            host: str, port: int
+        ) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
+            await asyncio.Event().wait()
+            raise AssertionError("unreachable")
+
+        monkeypatch.setattr(
+            "app.monitoring.tcp_probe.asyncio.open_connection", _never_connects
+        )
+
+    async def test_timeout_returns_timeout_status(
+        self, hanging_connection: None
+    ) -> None:
         target = NetworkTarget.parse("192.0.2.1")
         result = await probe_tcp_port(target, port=9, timeout=0.1)
-        # On some systems, the OS immediately returns UNREACHABLE for non-routable
-        # addresses; accept both outcomes as valid for a non-routable destination.
-        assert result.status in {PortStatus.TIMEOUT, PortStatus.UNREACHABLE}
+        assert result.status == PortStatus.TIMEOUT
 
-    async def test_short_timeout_is_respected(self) -> None:
+    async def test_short_timeout_is_respected(self, hanging_connection: None) -> None:
         target = NetworkTarget.parse("192.0.2.1")
         result = await probe_tcp_port(target, port=9, timeout=0.1)
         # The probe must finish well within the test budget (2 seconds).
