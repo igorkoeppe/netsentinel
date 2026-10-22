@@ -83,9 +83,7 @@ async def test_acknowledge_waits_for_resolution_and_refreshes_cached_state(pg_en
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
         async with sessions.begin() as session:
-            host_ids = select(Host.id).where(
-                Host.address == target.value
-            )
+            host_ids = select(Host.id).where(Host.address == target.value)
             await session.execute(
                 delete(SecurityAlertRecord).where(
                     SecurityAlertRecord.host_id.in_(host_ids)
