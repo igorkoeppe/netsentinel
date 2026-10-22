@@ -17,12 +17,15 @@ from app.monitoring.availability import HostAvailabilityResult, check_host_avail
 from app.monitoring.monitor import monitor_host
 from app.monitoring.target import InvalidTargetError, NetworkTarget
 from app.services.history import HostHistoryResult, ScanDetailsResult
+from app.services.scan_schedule import DEFAULT_SCHEDULE_INTERVAL
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine
 
     from app.models.security_alert import SecurityAlertRecord
     from app.services.alert_query import AlertListItem
+    from app.services.scan_schedule import ScheduleItem
+    from app.services.scheduled_scan import ScheduledRunResult
 
 
 def parse_ports(ports_str: str) -> list[int]:
@@ -90,6 +93,19 @@ def parse_alert_id(val: str) -> int:
     if alert_id <= 0:
         raise argparse.ArgumentTypeError("Alert ID must be strictly positive.")
     return alert_id
+
+
+def parse_schedule_id(val: str) -> int:
+    """Parse and validate a schedule ID argument."""
+    try:
+        schedule_id = int(val)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"Invalid schedule ID: '{val}'. Must be an integer."
+        ) from None
+    if schedule_id <= 0:
+        raise argparse.ArgumentTypeError("Schedule ID must be strictly positive.")
+    return schedule_id
 
 
 def parse_alert_status(val: str) -> AlertStatus:
@@ -699,6 +715,238 @@ async def run_resolve_alert(alert_id: int) -> int:
             await engine.dispose()
 
 
+def format_schedules_table(schedules: list[ScheduleItem]) -> None:
+    """Format and print the scan schedules table."""
+    print("\nNetSentinel Scan Schedules\n")
+    if not schedules:
+        print("No scan schedules found.\n")
+        return
+
+    print(
+        f"{'ID':<6} {'TARGET':<20} {'INTERVAL':<10} {'ENABLED':<9} "
+        f"{'NEXT RUN':<21} {'LAST RUN':<21} {'PORTS'}"
+    )
+    for item in schedules:
+        last_run = (
+            item.last_run_at.strftime("%Y-%m-%d %H:%M:%S") if item.last_run_at else "-"
+        )
+        print(
+            f"{item.id:<6} {item.address:<20} {str(item.interval_seconds) + 's':<10} "
+            f"{'yes' if item.enabled else 'no':<9} "
+            f"{item.next_run_at.strftime('%Y-%m-%d %H:%M:%S'):<21} {last_run:<21} "
+            f"{','.join(str(p) for p in item.ports)}"
+        )
+        if item.last_error:
+            print(f"{'':<6} last error: {item.last_error}")
+    print()
+
+
+def format_schedule(item: ScheduleItem, action: str) -> None:
+    """Print a confirmation for a created or updated schedule."""
+    print(f"\nSchedule {item.id} {action}.\n")
+    print(f"Target: {item.address}")
+    print(f"Ports: {','.join(str(p) for p in item.ports)}")
+    print(f"Interval: {item.interval_seconds}s")
+    print(f"Enabled: {'yes' if item.enabled else 'no'}")
+    print(f"Next run: {item.next_run_at.strftime('%Y-%m-%d %H:%M:%S')}\n")
+
+
+def format_scheduled_run(result: ScheduledRunResult) -> None:
+    """Print the outcome of one scheduled run."""
+    timestamp = time.strftime("%H:%M:%S")
+    if result.error is not None:
+        print(
+            f"[{timestamp}] schedule {result.schedule_id} {result.address}: "
+            f"FAILED ({result.error})"
+        )
+        return
+    print(
+        f"[{timestamp}] schedule {result.schedule_id} {result.address}: "
+        f"scan {result.scan_id}, {result.event_count} change(s), "
+        f"{len(result.alerts)} alert(s)"
+    )
+    if result.alerts:
+        print()
+        format_security_alerts(result.alerts)
+
+
+async def run_schedule_add(
+    target_str: str, ports: list[int], interval: int, enabled: bool
+) -> int:
+    """Create a scan schedule."""
+    if not settings.DATABASE_URL:
+        print("error: DATABASE_URL is required for scan schedules", file=sys.stderr)
+        return 1
+
+    from datetime import UTC, datetime
+
+    from sqlalchemy.exc import OperationalError
+
+    from app.db.session import get_db_session, get_engine
+    from app.services.scan_schedule import (
+        InvalidScheduleError,
+        ScanScheduleService,
+        ScheduleAlreadyExistsError,
+    )
+
+    engine: AsyncEngine | None = None
+    try:
+        engine = get_engine()
+        async with get_db_session() as session:
+            item = await ScanScheduleService(session).create_schedule(
+                target=target_str,
+                ports=ports,
+                interval_seconds=interval,
+                enabled=enabled,
+                now=datetime.now(UTC),
+            )
+        format_schedule(item, "created")
+        return 0
+    except InvalidScheduleError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+    except ScheduleAlreadyExistsError:
+        print(f"error: {target_str} already has a scan schedule", file=sys.stderr)
+        return 1
+    except OperationalError:
+        print("error: could not connect to PostgreSQL database", file=sys.stderr)
+        return 1
+    except Exception as e:
+        print(f"error: unexpected failure: {e}", file=sys.stderr)
+        return 1
+    finally:
+        if engine is not None:
+            await engine.dispose()
+
+
+async def run_schedule_list(limit: int) -> int:
+    """List scan schedules."""
+    if not settings.DATABASE_URL:
+        print("error: DATABASE_URL is required for scan schedules", file=sys.stderr)
+        return 1
+
+    from sqlalchemy.exc import OperationalError
+
+    from app.db.session import get_db_session, get_engine
+    from app.services.scan_schedule import ScanScheduleService
+
+    engine: AsyncEngine | None = None
+    try:
+        engine = get_engine()
+        async with get_db_session() as session:
+            items = await ScanScheduleService(session).list_schedules(limit=limit)
+        format_schedules_table(items)
+        return 0
+    except OperationalError:
+        print("error: could not connect to PostgreSQL database", file=sys.stderr)
+        return 1
+    except Exception as e:
+        print(f"error: unexpected failure: {e}", file=sys.stderr)
+        return 1
+    finally:
+        if engine is not None:
+            await engine.dispose()
+
+
+async def run_schedule_update(
+    schedule_id: int,
+    *,
+    ports: list[int] | None = None,
+    interval: int | None = None,
+    enabled: bool | None = None,
+) -> int:
+    """Update, enable or disable a scan schedule."""
+    if not settings.DATABASE_URL:
+        print("error: DATABASE_URL is required for scan schedules", file=sys.stderr)
+        return 1
+    if ports is None and interval is None and enabled is None:
+        print("error: nothing to update (use --ports or --interval)", file=sys.stderr)
+        return 2
+
+    from datetime import UTC, datetime
+
+    from sqlalchemy.exc import OperationalError
+
+    from app.db.session import get_db_session, get_engine
+    from app.services.scan_schedule import (
+        InvalidScheduleError,
+        ScanScheduleService,
+        ScheduleNotFoundError,
+    )
+
+    engine: AsyncEngine | None = None
+    try:
+        engine = get_engine()
+        async with get_db_session() as session:
+            item = await ScanScheduleService(session).update_schedule(
+                schedule_id,
+                ports=ports,
+                interval_seconds=interval,
+                enabled=enabled,
+                now=datetime.now(UTC),
+            )
+        format_schedule(item, "updated")
+        return 0
+    except ScheduleNotFoundError:
+        print(f"Schedule {schedule_id} not found.", file=sys.stderr)
+        return 1
+    except InvalidScheduleError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+    except OperationalError:
+        print("error: could not connect to PostgreSQL database", file=sys.stderr)
+        return 1
+    except Exception as e:
+        print(f"error: unexpected failure: {e}", file=sys.stderr)
+        return 1
+    finally:
+        if engine is not None:
+            await engine.dispose()
+
+
+async def run_scheduler(once: bool) -> int:
+    """Run due schedules once, or keep scheduling until interrupted."""
+    if not settings.DATABASE_URL:
+        print("error: DATABASE_URL is required for scan schedules", file=sys.stderr)
+        return 1
+
+    from datetime import UTC, datetime
+
+    from app.db.session import dispose_engine
+    from app.monitoring.scheduler import Scheduler
+    from app.services.scheduled_scan import create_scheduled_scan_runner
+
+    try:
+        runner = create_scheduled_scan_runner()
+    except ValueError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+
+    async def tick(now: datetime) -> None:
+        for result in await runner.run_due(now):
+            format_scheduled_run(result)
+
+    print("\nNetSentinel Scheduler\n")
+    try:
+        if once:
+            await tick(datetime.now(UTC))
+        else:
+            print(
+                f"Poll interval: {settings.SCHEDULER_POLL_INTERVAL}s (Ctrl+C to stop)\n"
+            )
+            await Scheduler(
+                tick, poll_interval=settings.SCHEDULER_POLL_INTERVAL
+            ).run_forever()
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        print("\nScheduler stopped.")
+    except Exception as e:
+        print(f"error: unexpected failure: {e}", file=sys.stderr)
+        return 1
+    finally:
+        await dispose_engine()
+    return 0
+
+
 def main() -> int:
     """CLI entry point."""
     parser = argparse.ArgumentParser(
@@ -814,6 +1062,68 @@ def main() -> int:
         help="Primary key of the alert to resolve",
     )
 
+    schedule_parser = subparsers.add_parser(
+        "schedule", help="Manage and run periodic scans"
+    )
+    schedule_subparsers = schedule_parser.add_subparsers(dest="action", required=True)
+
+    sched_add = schedule_subparsers.add_parser(
+        "add", help="Schedule a periodic scan for a target"
+    )
+    sched_add.add_argument("target", help="The network target (IP or hostname)")
+    sched_add.add_argument(
+        "--ports",
+        required=True,
+        type=parse_ports,
+        help="Comma-separated list of TCP ports to scan on every run",
+    )
+    sched_add.add_argument(
+        "--interval",
+        type=parse_interval,
+        default=DEFAULT_SCHEDULE_INTERVAL,
+        help=(
+            "Seconds between runs "
+            f"(default: {DEFAULT_SCHEDULE_INTERVAL}, "
+            f"minimum: {settings.SCHEDULE_MIN_INTERVAL})"
+        ),
+    )
+    sched_add.add_argument(
+        "--disabled",
+        action="store_true",
+        help="Create the schedule without enabling it",
+    )
+
+    sched_list = schedule_subparsers.add_parser("list", help="List scan schedules")
+    sched_list.add_argument(
+        "--limit",
+        type=parse_limit,
+        default=50,
+        help="Maximum number of schedules to show (default: 50)",
+    )
+
+    sched_update = schedule_subparsers.add_parser(
+        "update", help="Change the ports or interval of a schedule"
+    )
+    sched_update.add_argument("schedule_id", type=parse_schedule_id)
+    sched_update.add_argument("--ports", type=parse_ports, default=None)
+    sched_update.add_argument("--interval", type=parse_interval, default=None)
+
+    for name, help_text in (
+        ("enable", "Enable a schedule (runs as soon as the scheduler polls)"),
+        ("disable", "Disable a schedule"),
+    ):
+        toggle = schedule_subparsers.add_parser(name, help=help_text)
+        toggle.add_argument("schedule_id", type=parse_schedule_id)
+
+    sched_run = schedule_subparsers.add_parser(
+        "run", help="Run the scheduler in the foreground"
+    )
+    sched_run.add_argument(
+        "--once",
+        action="store_true",
+        help="Run the schedules that are due now and exit (e.g. from cron)",
+    )
+
     args = parser.parse_args()
 
     if args.command == "scan":
@@ -830,6 +1140,31 @@ def main() -> int:
             return 0
     elif args.command == "history":
         return asyncio.run(run_history(args.target, args.scan, args.limit))
+    elif args.command == "schedule":
+        if args.action == "add":
+            return asyncio.run(
+                run_schedule_add(
+                    args.target, args.ports, args.interval, not args.disabled
+                )
+            )
+        elif args.action == "list":
+            return asyncio.run(run_schedule_list(args.limit))
+        elif args.action == "update":
+            return asyncio.run(
+                run_schedule_update(
+                    args.schedule_id, ports=args.ports, interval=args.interval
+                )
+            )
+        elif args.action in ("enable", "disable"):
+            return asyncio.run(
+                run_schedule_update(args.schedule_id, enabled=args.action == "enable")
+            )
+        elif args.action == "run":
+            try:
+                return asyncio.run(run_scheduler(args.once))
+            except KeyboardInterrupt:
+                print("\nScheduler stopped.")
+                return 0
     elif args.command == "alerts":
         if args.action == "acknowledge":
             return asyncio.run(run_acknowledge_alert(args.alert_id))

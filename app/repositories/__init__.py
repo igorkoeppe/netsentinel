@@ -17,6 +17,10 @@ from app.repositories.host import HostAlreadyExistsError, HostRepository
 from app.repositories.monitoring_event import MonitoringEventRepository
 from app.repositories.notification_delivery import NotificationDeliveryRepository
 from app.repositories.scan import PortResultInput, ScanHostNotFoundError, ScanRepository
+from app.repositories.scan_schedule import (
+    ScanScheduleRepository,
+    ScheduleAlreadyExistsError,
+)
 
 __all__ = [
     "AlertRepository",
@@ -27,4 +31,6 @@ __all__ = [
     "PortResultInput",
     "ScanHostNotFoundError",
     "ScanRepository",
+    "ScanScheduleRepository",
+    "ScheduleAlreadyExistsError",
 ]

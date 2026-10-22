@@ -34,6 +34,7 @@ class TestMetadata:
         "monitoring_events",
         "security_alerts",
         "notification_deliveries",
+        "scan_schedules",
     }
 
     def test_all_tables_registered(self) -> None:

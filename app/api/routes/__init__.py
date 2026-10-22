@@ -5,6 +5,7 @@ from app.api.routes.dashboard import router as dashboard_router
 from app.api.routes.health import router as health_router
 from app.api.routes.hosts import router as hosts_router
 from app.api.routes.scans import router as scans_router
+from app.api.routes.schedules import router as schedules_router
 
 __all__ = [
     "alerts_router",
@@ -12,4 +13,5 @@ __all__ = [
     "health_router",
     "hosts_router",
     "scans_router",
+    "schedules_router",
 ]

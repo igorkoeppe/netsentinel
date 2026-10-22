@@ -6,6 +6,7 @@ import {
   Bell,
   Server,
   Radar,
+  CalendarClock,
   Settings,
   Menu,
   X,
@@ -28,6 +29,7 @@ export const Layout: React.FC = () => {
     if (path.startsWith("/hosts")) return "Monitored Hosts";
     if (path.startsWith("/scans/")) return "Scan Details";
     if (path.startsWith("/scans")) return "Monitoring Scans";
+    if (path.startsWith("/schedules")) return "Scan Schedules";
     if (path.startsWith("/settings")) return "Settings & Connection";
     return "NetSentinel";
   };
@@ -37,6 +39,7 @@ export const Layout: React.FC = () => {
     { to: "/alerts", label: "Alerts", icon: <Bell size={18} /> },
     { to: "/hosts", label: "Hosts", icon: <Server size={18} /> },
     { to: "/scans", label: "Scans", icon: <Radar size={18} /> },
+    { to: "/schedules", label: "Schedules", icon: <CalendarClock size={18} /> },
     { to: "/settings", label: "Settings", icon: <Settings size={18} /> },
   ];
 

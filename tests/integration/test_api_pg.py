@@ -705,3 +705,63 @@ async def test_api_alert_details_all_states_and_no_missing_greenlet_pg(
             )
             assert resp_res_mut.status_code == 200
             assert resp_res_mut.json()["status"] == "RESOLVED"
+
+
+@pytest.mark.asyncio
+async def test_api_schedules_lifecycle_pg(
+    pg_session: AsyncSession, override_api_deps: None
+) -> None:
+    headers = {"X-API-Key": _API_KEY}
+    with patch.object(Settings, "get_api_key", return_value=_API_KEY):
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            created = await client.post(
+                "/api/v1/schedules",
+                json={
+                    "target": "192.168.1.100",
+                    "ports": [443, 22],
+                    "interval_seconds": 600,
+                },
+                headers=headers,
+            )
+            assert created.status_code == 201, created.text
+            body = created.json()
+            assert body["target"] == "192.168.1.100"
+            assert body["ports"] == [22, 443]
+            assert body["enabled"] is True
+            schedule_id = body["id"]
+
+            duplicate = await client.post(
+                "/api/v1/schedules",
+                json={"target": "192.168.1.100", "ports": [80]},
+                headers=headers,
+            )
+            assert duplicate.status_code == 409
+
+            too_short = await client.post(
+                "/api/v1/schedules",
+                json={"target": "192.168.1.101", "ports": [80], "interval_seconds": 5},
+                headers=headers,
+            )
+            assert too_short.status_code == 422
+
+            patched = await client.patch(
+                f"/api/v1/schedules/{schedule_id}",
+                json={"enabled": False},
+                headers=headers,
+            )
+            assert patched.status_code == 200
+            assert patched.json()["enabled"] is False
+
+            listed = await client.get("/api/v1/schedules", headers=headers)
+            assert listed.status_code == 200
+            assert [s["id"] for s in listed.json()["items"]] == [schedule_id]
+
+            fetched = await client.get(
+                f"/api/v1/schedules/{schedule_id}", headers=headers
+            )
+            assert fetched.json()["enabled"] is False
+
+            missing = await client.get("/api/v1/schedules/999999", headers=headers)
+            assert missing.status_code == 404

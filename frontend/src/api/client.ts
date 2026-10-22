@@ -143,4 +143,12 @@ export class ApiClient {
       body: body ? JSON.stringify(body) : undefined,
     });
   }
+
+  public patch<T>(path: string, body: unknown, options?: RequestOptions): Promise<T> {
+    return this.request<T>(path, {
+      ...options,
+      method: "PATCH",
+      body: JSON.stringify(body),
+    });
+  }
 }

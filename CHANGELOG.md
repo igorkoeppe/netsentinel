@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Added
+- Scheduled scans: each host can have one periodic scan (`scan_schedules` table, migration `0005`) with an explicit port list and a configurable interval (minimum `SCHEDULE_MIN_INTERVAL`).
+- Every scheduled run is persisted as a regular scan and compared with the host's latest persisted scan through the existing detection engine and alert rules, so new open ports and closed ports raise alerts (and webhook notifications) exactly like `netsentinel monitor --persist`.
+- In-process asyncio scheduler, opt-in in the API with `SCHEDULER_ENABLED`, or standalone with `netsentinel schedule run [--once]`. Due schedules are claimed with `FOR UPDATE SKIP LOCKED`, so several schedulers never run the same schedule twice.
+- CLI `netsentinel schedule add|list|update|enable|disable|run`.
+- REST endpoints `GET/POST /api/v1/schedules` and `GET/PATCH /api/v1/schedules/{id}` (mutations require the API key; CORS now allows `PATCH`).
+- Dashboard page "Schedules" to create schedules, enable/disable them and see the last run or error.
+
 ### Fixed
 - Unit tests no longer need `DATABASE_URL`: API validation tests failed with a 500 because FastAPI opens the `get_session` dependency before rejecting bad input. A shared unit-test fixture now replaces the session with a guard that fails if a test touches it.
 - Made the TCP probe timeout test deterministic. It relied on `192.0.2.1` never answering, but networks that reject it with an immediate RST correctly yield `CLOSED`; the test now simulates a hanging connection.

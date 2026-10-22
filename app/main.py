@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
@@ -15,10 +16,15 @@ from app.api.routes import (
     health_router,
     hosts_router,
     scans_router,
+    schedules_router,
 )
 from app.core.config import settings
 from app.core.version import get_version
 from app.db.session import dispose_engine
+from app.monitoring.scheduler import Scheduler
+from app.services.scheduled_scan import create_scan_scheduler
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -26,10 +32,24 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan manager.
 
     Database connections are created lazily on first access.
-    On application shutdown, active pools are gracefully released.
+    When ``SCHEDULER_ENABLED`` is set, the scan scheduler runs in this process
+    for the lifetime of the application.
+    On application shutdown, the scheduler is stopped and active pools are
+    gracefully released.
     """
-    yield
-    await dispose_engine()
+    scheduler: Scheduler | None = None
+    if settings.SCHEDULER_ENABLED:
+        if settings.DATABASE_URL:
+            scheduler = create_scan_scheduler()
+            scheduler.start()
+        else:
+            logger.warning("SCHEDULER_ENABLED is set but DATABASE_URL is empty")
+    try:
+        yield
+    finally:
+        if scheduler is not None:
+            await scheduler.stop()
+        await dispose_engine()
 
 
 def create_app() -> FastAPI:
@@ -48,7 +68,7 @@ def create_app() -> FastAPI:
             CORSMiddleware,
             allow_origins=cors_origins,
             allow_credentials=True,
-            allow_methods=["GET", "POST", "OPTIONS"],
+            allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
             allow_headers=["Content-Type", "X-API-Key"],
         )
 
@@ -67,6 +87,7 @@ def create_app() -> FastAPI:
     api_v1.include_router(hosts_router)
     api_v1.include_router(scans_router)
     api_v1.include_router(alerts_router)
+    api_v1.include_router(schedules_router)
 
     app.include_router(api_v1)
 

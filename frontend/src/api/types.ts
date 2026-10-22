@@ -178,3 +178,36 @@ export interface DashboardSummaryResponse {
   scans: ScansSummary;
   alerts: AlertsSummary;
 }
+
+/* ==========================================================================
+   Scan Schedules
+   ========================================================================== */
+
+export interface ScheduleResponse {
+  id: number;
+  host_id: number;
+  target: string;
+  name: string | null;
+  ports: number[];
+  interval_seconds: number;
+  enabled: boolean;
+  next_run_at: string;
+  last_run_at: string | null;
+  last_scan_id: number | null;
+  last_error: string | null;
+  created_at: string;
+  updated_at: string | null;
+}
+
+export interface ScheduleCreateRequest {
+  target: string;
+  ports: number[];
+  interval_seconds: number;
+  enabled?: boolean;
+}
+
+export interface ScheduleUpdateRequest {
+  ports?: number[];
+  interval_seconds?: number;
+  enabled?: boolean;
+}

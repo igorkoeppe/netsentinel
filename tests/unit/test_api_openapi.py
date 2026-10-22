@@ -37,6 +37,8 @@ async def test_openapi_schema_structure() -> None:
             "/api/v1/alerts/{alert_id}/deliveries",
             "/api/v1/alerts/{alert_id}/acknowledge",
             "/api/v1/alerts/{alert_id}/resolve",
+            "/api/v1/schedules",
+            "/api/v1/schedules/{schedule_id}",
         ]
         for p in expected_paths:
             assert p in paths, f"Path {p} missing from OpenAPI schema"
