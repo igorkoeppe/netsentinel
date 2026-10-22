@@ -12,6 +12,7 @@ from app.models.monitoring_event import MonitoringEventRecord
 from app.models.notification_delivery import NotificationDeliveryRecord
 from app.models.port_result import PortResult
 from app.models.scan import Scan
+from app.models.scan_schedule import ScanSchedule
 from app.models.security_alert import SecurityAlertRecord
 
 __all__ = [
@@ -20,5 +21,6 @@ __all__ = [
     "NotificationDeliveryRecord",
     "PortResult",
     "Scan",
+    "ScanSchedule",
     "SecurityAlertRecord",
 ]

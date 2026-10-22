@@ -126,6 +126,12 @@ class Settings(BaseSettings):
     SCAN_MAX_CONCURRENCY: int = Field(default=50, gt=0)
     MONITOR_INTERVAL: int = Field(default=30, gt=0)
 
+    # Scheduled scans — the in-process scheduler is opt-in.
+    SCHEDULER_ENABLED: bool = False
+    SCHEDULER_POLL_INTERVAL: int = Field(default=15, gt=0)
+    SCHEDULER_BATCH_SIZE: int = Field(default=10, gt=0)
+    SCHEDULE_MIN_INTERVAL: int = Field(default=60, gt=0)
+
     # Database (v0.3) — empty string means "not configured".
     # The application continues to function without a database for scan/monitor.
     DATABASE_URL: str = ""

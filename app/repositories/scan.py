@@ -323,6 +323,24 @@ class ScanRepository:
         result = await self._session.execute(stmt)
         return list(result.scalars().all())
 
+    async def get_latest_for_host(self, host_id: int) -> Scan | None:
+        """Return the most recent scan of a host with its port results loaded.
+
+        Used as the detection baseline for scheduled scans. Ports are sorted
+        ``ASC`` like in :meth:`get_by_id`.
+        """
+        stmt = (
+            select(Scan)
+            .where(Scan.host_id == host_id)
+            .order_by(Scan.started_at.desc(), Scan.id.desc())
+            .limit(1)
+            .options(selectinload(Scan.port_results))
+        )
+        scan = cast(Scan | None, await self._session.scalar(stmt))
+        if scan is not None:
+            scan.port_results.sort(key=lambda pr: pr.port)
+        return scan
+
     async def list_global(
         self,
         *,

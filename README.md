@@ -249,6 +249,27 @@ O comando irá executar indefinitamente ou até atingir o limite estipulado em `
 
 > Sem `--persist`, os snapshots e alertas são mantidos apenas em memória durante a execução para exibição imediata e resumo final. Com `--persist`, cada ciclo (Scan, PortResults, MonitoringEvents e SecurityAlerts) é persistido atomicamente no PostgreSQL.
 
+### Scans agendados
+
+Cada alvo pode ter **um** scan periódico, com lista explícita de portas (até 100) e intervalo configurável (mínimo `SCHEDULE_MIN_INTERVAL`, padrão 60 s). Cada execução é persistida como um scan comum (histórico em `netsentinel history`, `/api/v1/scans` e no dashboard) e comparada com o **último scan persistido do alvo** pelo mesmo motor de detecção do `monitor`. Uma porta que passa a responder `OPEN` gera `NEW_OPEN_PORT` (ou `EXPECTED_OPEN_PORT`/`UNEXPECTED_OPEN_PORT` com `EXPECTED_TCP_PORTS`); uma porta que estava `OPEN` e passa a `CLOSED` gera `PORT_CLOSED`. Os alertas seguem a mesma política de notificação por webhook.
+
+```bash
+netsentinel schedule add 192.168.1.10 --ports 22,80,443 --interval 300
+netsentinel schedule list
+netsentinel schedule update 1 --interval 900
+netsentinel schedule disable 1
+netsentinel schedule enable 1      # volta a ficar devido imediatamente
+netsentinel schedule run           # scheduler em primeiro plano (Ctrl+C para parar)
+netsentinel schedule run --once    # executa só o que está devido agora (ex.: via cron)
+```
+
+O scheduler é um loop `asyncio` simples: a cada `SCHEDULER_POLL_INTERVAL` segundos ele reserva até `SCHEDULER_BATCH_SIZE` agendamentos devidos (`SELECT … FOR UPDATE SKIP LOCKED`, avançando `next_run_at`) e os executa um após o outro. Ele roda de duas formas:
+
+- dentro da API, com `SCHEDULER_ENABLED=true` (desligado por padrão);
+- em um processo dedicado, com `netsentinel schedule run`.
+
+Como a reserva é feita no banco, mais de um processo pode rodar o scheduler ao mesmo tempo sem executar o mesmo agendamento duas vezes. Falhas (alvo inacessível, erro de banco) ficam registradas em `last_error` do agendamento e não interrompem os demais.
+
 ## Como funciona
 
 ### Detecção de estado da porta
@@ -468,6 +489,10 @@ A documentação interativa estará acessível em:
 | `GET` | `/api/v1/alerts/{alert_id}/deliveries` | `X-API-Key` | Histórico sanitizado de tentativas de entrega de notificações para o alerta. |
 | `POST` | `/api/v1/alerts/{alert_id}/acknowledge` | `X-API-Key` | Triagem remota: transiciona o alerta para `ACKNOWLEDGED` (409 em transições inválidas). |
 | `POST` | `/api/v1/alerts/{alert_id}/resolve` | `X-API-Key` | Triagem remota: transiciona o alerta para `RESOLVED` (409 em transições inválidas). |
+| `GET` | `/api/v1/schedules` | `X-API-Key` | Lista agendamentos de scan com paginação (`limit`, `offset`) e filtro `enabled`. |
+| `GET` | `/api/v1/schedules/{schedule_id}` | `X-API-Key` | Detalhes de um agendamento (próxima execução, último scan, último erro). |
+| `POST` | `/api/v1/schedules` | `X-API-Key` | Cria um scan periódico (`target`, `ports`, `interval_seconds`); 409 se o alvo já tiver agendamento. |
+| `PATCH` | `/api/v1/schedules/{schedule_id}` | `X-API-Key` | Altera portas ou intervalo, ou habilita/desabilita o agendamento. |
 
 ### Exemplos com cURL
 

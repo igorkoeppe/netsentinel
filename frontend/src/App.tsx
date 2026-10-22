@@ -8,6 +8,7 @@ import { HostsPage } from "./pages/HostsPage";
 import { HostDetailPage } from "./pages/HostDetailPage";
 import { ScansPage } from "./pages/ScansPage";
 import { ScanDetailPage } from "./pages/ScanDetailPage";
+import { SchedulesPage } from "./pages/SchedulesPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
 import { ErrorBoundary } from "./components/ErrorBoundary";
@@ -24,6 +25,7 @@ export const App: React.FC = () => {
           <Route path="hosts/:target" element={<HostDetailPage />} />
           <Route path="scans" element={<ScansPage />} />
           <Route path="scans/:scanId" element={<ScanDetailPage />} />
+          <Route path="schedules" element={<SchedulesPage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="*" element={<NotFoundPage />} />
         </Route>
