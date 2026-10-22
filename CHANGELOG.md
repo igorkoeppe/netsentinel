@@ -9,6 +9,7 @@
 - CLI `netsentinel schedule add|list|update|enable|disable|run`.
 - REST endpoints `GET/POST /api/v1/schedules` and `GET/PATCH /api/v1/schedules/{id}` (mutations require the API key; CORS now allows `PATCH`).
 - Dashboard page "Schedules" to create schedules, enable/disable them and see the last run or error.
+- English README (Portuguese version kept as `README.pt-BR.md`), CI badge, MIT `LICENSE` and `python -m tools.init_env` to create a `.env` with random database passwords and an `API_KEY` for the Quick start.
 
 ### Fixed
 - Unit tests no longer need `DATABASE_URL`: API validation tests failed with a 500 because FastAPI opens the `get_session` dependency before rejecting bad input. A shared unit-test fixture now replaces the session with a guard that fails if a test touches it.
