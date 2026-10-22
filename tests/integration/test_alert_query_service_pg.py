@@ -233,12 +233,15 @@ class TestAlertQueryServicePG:
             ),
         )
         await pg_session.commit()
+        # Read the id before expiring: a sync access to an expired attribute
+        # would itself trigger lazy-loading I/O (MissingGreenlet).
+        alert_id = rec.id
         # Expire session to ensure entity is not cached and lazy-loading would fail
         pg_session.expire_all()
 
-        item = await query_service.get_alert(rec.id)
+        item = await query_service.get_alert(alert_id)
         assert item is not None
-        assert item.id == rec.id
+        assert item.id == alert_id
         assert item.target == "10.20.30.40"
         assert item.port == 22
         assert item.status == "OPEN"

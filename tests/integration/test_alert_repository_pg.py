@@ -585,13 +585,16 @@ class TestGetById:
             alert=_port_opened_alert(443),
         )
         await pg_session.commit()
+        # Read the id before expiring: a sync access to an expired attribute
+        # would itself trigger lazy-loading I/O (MissingGreenlet).
+        alert_id = created.id
 
         # Evict all loaded entities from session identity map
         pg_session.expire_all()
 
-        record = await alert_repo.get_by_id(created.id)
+        record = await alert_repo.get_by_id(alert_id)
         assert record is not None
-        assert record.id == created.id
+        assert record.id == alert_id
         # Accessing host relationship must NOT trigger lazy-load / MissingGreenlet
         assert record.host is not None
         assert record.host.id == host_id

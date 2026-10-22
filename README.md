@@ -415,6 +415,15 @@ pytest
 TEST_DATABASE_URL=postgresql+asyncpg://netsentinel:<senha-admin-url-encoded>@127.0.0.1:5432/netsentinel_test pytest -m integration
 ```
 
+### Integração contínua
+
+O workflow `.github/workflows/ci.yml` roda em todo push para `main` e em todo pull request:
+
+- **Lint**: `ruff check`, `ruff format --check` e `mypy app`;
+- **Unit tests**: `pytest -m "not integration"`, sem banco nem rede;
+- **Integration tests**: PostgreSQL 16 como service container; aplica `alembic upgrade head` e `alembic check` num banco próprio e roda `pytest -m integration`;
+- **Frontend**: `npm run lint`, `npm run typecheck` e `npm test` em `frontend/`.
+
 ## REST API
 
 O NetSentinel v0.7.0 expõe seus serviços de monitoramento, histórico e triagem através de uma API HTTP REST assíncrona versionada (`/api/v1`), sem duplicar regras de negócio da CLI.
