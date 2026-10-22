@@ -2,14 +2,22 @@
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-22
+
 ### Added
 - Scheduled scans: each host can have one periodic scan (`scan_schedules` table, migration `0005`) with an explicit port list and a configurable interval (minimum `SCHEDULE_MIN_INTERVAL`).
 - Every scheduled run is persisted as a regular scan and compared with the host's latest persisted scan through the existing detection engine and alert rules, so new open ports and closed ports raise alerts (and webhook notifications) exactly like `netsentinel monitor --persist`.
 - In-process asyncio scheduler, opt-in in the API with `SCHEDULER_ENABLED`, or standalone with `netsentinel schedule run [--once]`. Due schedules are claimed with `FOR UPDATE SKIP LOCKED`, so several schedulers never run the same schedule twice.
 - CLI `netsentinel schedule add|list|update|enable|disable|run`.
-- REST endpoints `GET/POST /api/v1/schedules` and `GET/PATCH /api/v1/schedules/{id}` (mutations require the API key; CORS now allows `PATCH`).
+- REST endpoints `GET/POST /api/v1/schedules` and `GET/PATCH /api/v1/schedules/{id}` (mutations require the API key).
 - Dashboard page "Schedules" to create schedules, enable/disable them and see the last run or error.
-- English README (Portuguese version kept as `README.pt-BR.md`), CI badge, MIT `LICENSE` and `python -m tools.init_env` to create a `.env` with random database passwords and an `API_KEY` for the Quick start.
+- GitHub Actions CI workflow running Ruff and mypy, the unit suite, the integration suite against PostgreSQL (including `alembic upgrade head` and `alembic check`), and frontend lint, typecheck and tests.
+- MIT `LICENSE`.
+- `python -m tools.init_env` to create a `.env` with random database passwords and an `API_KEY` for the Quick start.
+
+### Changed
+- The README is now in English, with a CI badge and Quick start; the Portuguese version is kept as `README.pt-BR.md`.
+- CORS now allows `PATCH` for the schedule update endpoint.
 
 ### Fixed
 - Unit tests no longer need `DATABASE_URL`: API validation tests failed with a 500 because FastAPI opens the `get_session` dependency before rejecting bad input. A shared unit-test fixture now replaces the session with a guard that fails if a test touches it.

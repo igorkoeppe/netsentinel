@@ -91,7 +91,7 @@ export const Layout: React.FC = () => {
                   letterSpacing: "0.05em",
                 }}
               >
-                v0.8.0
+                v0.9.0
               </div>
             </div>
           </div>
